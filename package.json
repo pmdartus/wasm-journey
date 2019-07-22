@@ -1,0 +1,22 @@
+{
+  "name": "wasm-journey",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "http-server -c-1 ./src"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pmdartus/wasm-journey.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/pmdartus/wasm-journey/issues"
+  },
+  "homepage": "https://github.com/pmdartus/wasm-journey#readme",
+  "devDependencies": {
+    "http-server": "^0.11.1"
+  }
+}
