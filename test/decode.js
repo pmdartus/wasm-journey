@@ -19,6 +19,7 @@ function readExample(name) {
 describe('decode', () => {
     it('add.wasm', () => {
         const input = readExample('add.wasm');
-        decode(input);
+        const module = decode(input);
+        console.log(JSON.stringify(module, null, 4))
     });
 });
