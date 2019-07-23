@@ -17,6 +17,7 @@
   },
   "homepage": "https://github.com/pmdartus/wasm-journey#readme",
   "devDependencies": {
-    "http-server": "^0.11.1"
+    "http-server": "^0.11.1",
+    "typescript": "^3.5.3"
   }
 }

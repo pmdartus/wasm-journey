@@ -170,6 +170,22 @@ Are are the different instruction that are encoded in the add function:
 * `0x20 0x01`: get a local value at index 1 and push the value to the stack.
 * `0x6a`: pop 2 i32 value at the top of the stack and push the result back on the stack.
 
+## First attempt to implement the VM
+
+Focus only the simplest interface `WebAssemble.instantiate`. The WASM spec doesn't contain any information about how WASM get bound to the host environment (aka. embeder). Those bindings are defined in a separate specification: [WebAssembly JavaScript Interface](https://webassembly.github.io/spec/js-api/).
+
+As defined in the specification, the `WebAssemble.instantiate` method is overloaded depending on the passed parameters:
+* `Promise<WebAssemblyInstantiatedSource> instantiate(BufferSource bytes, optional object importObject);`
+* `Promise<Instance> instantiate(Module moduleObject, optional object importObject);`
+
+For now we will only focus on the `instantiate` method receiving a buffer source. As defined in the WASM specification the instantiation of a WASM module is done in 3 sequential phases: decode, validate and execute. You can find more details about this in the [overview section](https://webassembly.github.io/spec/core/intro/overview.html#semantic-phases) of the specification.
+
+When implementing the initial skeleton for the bindings we can see that the bindings invoke the different phases in the same order. We can also see that the WASM VM exposes a [known set of APIs](https://webassembly.github.io/spec/core/appendix/embedding.html) to the host environment. In the case of the `instantiate` method the we will need to implement the following methods on our VM:
+* [`module_decode`](https://webassembly.github.io/spec/core/appendix/embedding.html#embed-module-decode): takes a WASM source encoded into the binary format and return a new WASM module.
+* [`module_validate`](https://webassembly.github.io/spec/core/appendix/embedding.html#embed-module-validate): takes a WASM module and returns a validation error if the module is invalid.
+* [`module_instantiate`](https://webassembly.github.io/spec/core/appendix/embedding.html#embed-module-instantiate): takes a WASM module with the external values and returns a new module instance.
+
 ## References
 
 https://www.rapidtables.com/convert/number/hex-to-ascii.html - Hex to ASCII text converter
+https://webassembly.github.io/spec/js-api - Specification for the Javascript API binding with WebAssembly
