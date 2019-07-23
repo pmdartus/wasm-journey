@@ -189,3 +189,30 @@ When implementing the initial skeleton for the bindings we can see that the bind
 
 https://www.rapidtables.com/convert/number/hex-to-ascii.html - Hex to ASCII text converter
 https://webassembly.github.io/spec/js-api - Specification for the Javascript API binding with WebAssembly
+
+# 23-07-2019
+
+The `fs.readFile` and `fs.readFileSync` are both returning both returns a NodeJS [Buffer](https://nodejs.org/api/buffer.html), which is not an actual ArrayBuffer. The `Buffer` was introduced in Node before the standardization of `TypedArray`. In order to convert a Node `Buffer` to an `ArrayBuffer` we will need to use the following snippet of code.
+
+```js
+// https://gist.github.com/miguelmota/5b06ae5698877322d0ca
+function toArrayBuffer(buffer) {
+    var ab = new ArrayBuffer(buffer.length);
+    var view = new Uint8Array(ab);
+
+    for (var i = 0; i < buffer.length; ++i) {
+        view[i] = buffer[i];
+    }
+
+    return ab;
+}
+```
+
+> TODO: Need to speak about the ArrayBuffer, Typed Array and Data Views
+
+In order to quickly verify the if the parser works as expected during as I was writing it, I started by creating adding some tests and running both the typescript compiler and the test suite in watch mode. Instead of implementing the entire logic for the parser I decided to focus on implementing only what is necessary for `add.wasm` example.
+
+## References
+
+https://github.com/WebAssembly/spec - WASM specifications + tests
+https://stackoverflow.com/a/51511486/3832710 - Node `Buffer` to `ArrayBuffer`

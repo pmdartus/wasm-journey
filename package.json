@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "http-server -c-1 ./src"
+    "start": "http-server -c-1 ./src",
+    "build": "tsc",
+    "test": "mocha"
   },
   "repository": {
     "type": "git",
@@ -18,6 +20,7 @@
   "homepage": "https://github.com/pmdartus/wasm-journey#readme",
   "devDependencies": {
     "http-server": "^0.11.1",
+    "mocha": "^6.2.0",
     "typescript": "^3.5.3"
   }
 }

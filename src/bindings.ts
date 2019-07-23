@@ -7,6 +7,9 @@ interface InstantiateResult {
     module: Module;
 }
 
+const module_decode = {} as any;
+const module_validate = {} as any;
+
 function copyBufferSource(bufferSource: BufferSource): ArrayBuffer {
     return bufferSource instanceof ArrayBuffer
         ? bufferSource.slice(0)
