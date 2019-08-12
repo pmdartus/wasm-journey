@@ -1,13 +1,13 @@
 import {
     ValueType,
     Module,
-    IndexType,
-    Instruction,
-    UnaryInstruction,
-    BinaryInstruction,
-    PrimaryExpression,
     Expression,
-} from './syntax';
+    FunctionType,
+    Export,
+    FunctionIndex,
+    TypeIndex,
+    Instruction,
+} from './structure';
 
 const MAGIC_NUMBER = 0x0061736d;
 const VERSION_NUMBER = 0x01000000;
@@ -327,21 +327,6 @@ function decodeUInt32(parser: Parser) {
     return result;
 }
 
-function primaryExpression(opcode: number): PrimaryExpression {
-    return {
-        type: 'primary',
-        opcode,
-    };
-}
-
-function unaryInstruction(opcode: number, param: ValueType): UnaryInstruction {
-    return {
-        type: 'unary',
-        opcode,
-        param,
-    };
-}
-
 /**
  * DECODE
  */
@@ -381,7 +366,7 @@ function decodeName(parser: Parser): string {
 }
 
 // https://webassembly.github.io/spec/core/binary/types.html#function-types
-function decodeType(parser: Parser, module: Module) {
+function decodeType(parser: Parser): FunctionType {
     if (consumeByte(parser) !== FUNCTION_TYPE_PREFIX) {
         throw new Error('Invalid function type prefix');
     }
@@ -401,44 +386,94 @@ function decodeType(parser: Parser, module: Module) {
         results.push(valueType);
     }
 
-    module.types.push({
+    return {
         params,
         results,
-    });
+    };
+}
+
+// https://webassembly.github.io/spec/core/binary/modules.html#binary-typesec
+function decodeTypeSection(parser: Parser): FunctionType[] {
+    const types: FunctionType[] = [];
+
+    if (peakByte(parser) !== SECTION_ID_TYPE) {
+        return types;
+    }
+    const _sectionId = consumeByte(parser);
+    const _sectionSize = decodeUInt32(parser);
+
+    const typeVecSize = decodeUInt32(parser);
+    for (let i = 0; i < typeVecSize; i++) {
+        types.push(decodeType(parser));
+    }
+
+    return types;
+}
+
+// https://webassembly.github.io/spec/core/binary/modules.html#binary-funcsec
+function decodeFunctionSection(parser: Parser): TypeIndex[] {
+    const functions: TypeIndex[] = [];
+
+    if (peakByte(parser) !== SECTION_ID_FUNCTION) {
+        return functions;
+    }
+    const _sectionId = consumeByte(parser);
+    const _sectionSize = decodeUInt32(parser);
+
+    const functionVecSize = decodeUInt32(parser);
+    for (let i = 0; i < functionVecSize; i++) {
+        const funTypeIndex = decodeUInt32(parser);
+        functions.push({
+            type: 'type',
+            index: funTypeIndex,
+        });
+    }
+
+    return functions;
 }
 
 // https://webassembly.github.io/spec/core/binary/modules.html#binary-exportsec
-function decodeExport(parser: Parser, module: Module) {
+function decodeExport(parser: Parser): Export {
     const name = decodeName(parser);
 
-    let type: IndexType;
-    switch (consumeByte(parser)) {
+    const type = consumeByte(parser);
+    const index = decodeUInt32(parser);
+
+    let descriptor: FunctionIndex;
+    switch (type) {
         case EXPORT_DESC_TYPE_FUNCTION:
-            type = IndexType.function;
+            descriptor = {
+                type: 'function',
+                index,
+            };
             break;
-
-        case EXPORT_DESC_TYPE_TABLE:
-            type = IndexType.table;
-
-        case EXPORT_DESC_TYPE_MEMORY:
-            type = IndexType.memory;
-
-        case EXPORT_DESC_TYPE_GLOBAL:
-            type = IndexType.global;
 
         default:
             throw new Error('Invalid export descriptor type');
     }
 
-    const index = decodeUInt32(parser);
-
-    module.exports.push({
+    return {
         name,
-        desc: {
-            type,
-            index,
-        },
-    });
+        descriptor,
+    };
+}
+
+// https://webassembly.github.io/spec/core/binary/modules.html#binary-exportsec
+function decodeExportSection(parser: Parser): Export[] {
+    const exports: Export[] = [];
+
+    if (peakByte(parser) !== SECTION_ID_EXPORT) {
+        return exports;
+    }
+    const _sectionId = consumeByte(parser);
+    const _sectionSize = decodeUInt32(parser);
+
+    const exportVecSize = consumeByte(parser);
+    for (let i = 0; i < exportVecSize; i++) {
+        exports.push(decodeExport(parser));
+    }
+
+    return exports;
 }
 
 // https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions
@@ -447,9 +482,20 @@ function decodeInstruction(parser: Parser): Instruction {
 
     switch (opcode) {
         case OPCODE_GET_LOCAL:
-            return unaryInstruction(opcode, decodeUInt32(parser));
+        case OPCODE_SET_LOCAL:
+        case OPCODE_TEE_LOCAL:
+        case OPCODE_GET_GLOBAL:
+        case OPCODE_SET_GLOBAL:
+            return {
+                opcode,
+                index: decodeUInt32(parser),
+            };
+
         case OPCODE_ADD_I32:
-            return primaryExpression(opcode);
+            return {
+                opcode
+            };
+
         default: {
             throw new TypeError(`Invalid opcode ${opcode}`);
         }
@@ -464,17 +510,22 @@ function decodeExpression(parser: Parser): Expression {
         const instruction = decodeInstruction(parser);
         instructions.push(instruction);
     }
-    
-    // Eat the OPCODE_END byte if necessary.
-    consumeByte(parser);
+
+    const _opCodeEnd = consumeByte(parser);
 
     return { instructions };
 }
 
 // https://webassembly.github.io/spec/core/binary/modules.html#binary-codesec
-function decodeCode(parser: Parser, module: Module) {
-    const locals: ValueType[] = [];
+function decodeCode(
+    parser: Parser,
+): {
+    locals: ValueType[];
+    body: Expression;
+} {
+    const _codeSize = decodeUInt32(parser);
 
+    const locals: ValueType[] = [];
     const localVecSize = decodeUInt32(parser);
     for (let i = 0; i < localVecSize; i++) {
         const localCount = decodeUInt32(parser);
@@ -486,72 +537,42 @@ function decodeCode(parser: Parser, module: Module) {
     }
 
     const body = decodeExpression(parser);
-
-    module.codes.push({
+    return {
         locals,
-        body
-    });
+        body,
+    };
 }
 
-// https://webassembly.github.io/spec/core/binary/modules.html#binary-section
-function decodeSection(parser: Parser, module: Module) {
-    const type = consumeByte(parser);
-    decodeUInt32(parser);
+// https://webassembly.github.io/spec/core/binary/modules.html#binary-codesec
+function decodeCodeSection(
+    parser: Parser,
+): {
+    locals: ValueType[];
+    body: Expression;
+}[] {
+    const codes: {
+        locals: ValueType[];
+        body: Expression;
+    }[] = [];
 
-    switch (type) {
-        // https://webassembly.github.io/spec/core/binary/modules.html#binary-typesec
-        case SECTION_ID_TYPE:
-            const typeVecSize = decodeUInt32(parser);
-            for (let i = 0; i < typeVecSize; i++) {
-                decodeType(parser, module);
-            }
-            break;
-
-        // https://webassembly.github.io/spec/core/binary/modules.html#binary-funcsec
-        case SECTION_ID_FUNCTION:
-            const functionVecSize = decodeUInt32(parser);
-            for (let i = 0; i < functionVecSize; i++) {
-                const funTypeIndex = decodeUInt32(parser);
-                module.funcs.push({
-                    type: IndexType.function,
-                    index: funTypeIndex
-                });
-            }
-            break;
-
-        // https://webassembly.github.io/spec/core/binary/modules.html#binary-exportsec
-        case SECTION_ID_EXPORT:
-            const exportVecSize = consumeByte(parser);
-            for (let i = 0; i < exportVecSize; i++) {
-                decodeExport(parser, module);
-            }
-            break;
-
-        // https://webassembly.github.io/spec/core/binary/modules.html#binary-codesec
-        case SECTION_ID_CODE:
-            const codeVecSize = decodeUInt32(parser);
-            for (let i = 0; i < codeVecSize; i++) {
-                decodeUInt32(parser);
-                decodeCode(parser, module);
-            }
-            break;
-
-        default:
-            throw new Error('Unknown section type');
+    if (peakByte(parser) !== SECTION_ID_CODE) {
+        return codes;
     }
+    const _sectionId = consumeByte(parser);
+    const _sectionSize = decodeUInt32(parser);
+
+    const codeVecSize = decodeUInt32(parser);
+    for (let i = 0; i < codeVecSize; i++) {
+        codes.push(decodeCode(parser));
+    }
+
+    return codes;
 }
 
 export function decode(source: ArrayBuffer): Module {
     const parser: Parser = {
         source: new DataView(source),
         offset: 0,
-    };
-
-    const module: Module = {
-        exports: [],
-        funcs: [],
-        types: [],
-        codes: [],
     };
 
     if (consumeBytes(parser, 4) !== MAGIC_NUMBER) {
@@ -562,9 +583,25 @@ export function decode(source: ArrayBuffer): Module {
         throw new Error('Invalid version number');
     }
 
-    while (!isEndOfFile(parser)) {
-        decodeSection(parser, module);
-    }
+    const types = decodeTypeSection(parser);
+    const functions = decodeFunctionSection(parser);
+    const exports = decodeExportSection(parser);
+    const codes = decodeCodeSection(parser);
 
-    return module;
+    return {
+        types,
+        functions: functions.map((type, index) => {
+            return {
+                type,
+                ...codes[index],
+            };
+        }),
+        tables: [],
+        memories: [],
+        globals: [],
+        elements: [],
+        datas: [],
+        imports: [],
+        exports,
+    };
 }

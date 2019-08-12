@@ -1,3 +1,5 @@
+import { module_decode, module_validate, module_instantiate } from './vm/main';
+
 // TODO: add missing types
 interface Instance {}
 interface Module {}
@@ -6,9 +8,6 @@ interface InstantiateResult {
     instance: Instance;
     module: Module;
 }
-
-const module_decode = {} as any;
-const module_validate = {} as any;
 
 function copyBufferSource(bufferSource: BufferSource): ArrayBuffer {
     return bufferSource instanceof ArrayBuffer
@@ -24,17 +23,20 @@ class CompilerError extends Error {
 
 // https://webassembly.github.io/spec/js-api/#compile-a-webassembly-module
 function compileWasmModule(bytes: ArrayBuffer): Module {
-    const { err: compilationError, res } = module_decode(bytes);
-    if (compilationError) {
-        return { err: compilationError };
+    let module;
+    try {
+        module = module_decode(bytes);
+    } catch (err) {
+        return { err };
     }
 
-    const validationError = module_validate(res);
-    if (validationError) {
-        return { err: validationError };
+    try {
+        module_validate(module);
+    } catch (err) {
+        return { err };
     }
 
-    return { res };
+    return { res: module };
 }
 
 // https://webassembly.github.io/spec/js-api/#asynchronously-compile-a-webassembly-module
