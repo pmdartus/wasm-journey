@@ -8,7 +8,7 @@ interface Context {
 
 // https://webassembly.github.io/spec/core/valid/types.html#valid-functype
 function validateFunctionType(functionType: FunctionType) {
-    if (functionType.results.length > 0) {
+    if (functionType.results.length > 1) {
         throw TypeError("Invalid function type, can't have multiple return");
     }
 }

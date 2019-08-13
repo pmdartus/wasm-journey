@@ -20,9 +20,9 @@ interface ExportInstance {
 type ExternalValue = FunctionAddress;
 
 // https://webassembly.github.io/spec/core/exec/runtime.html#syntax-moduleinst
-interface ModuleInstance {
+export interface ModuleInstance {
     types: FunctionType[],
-    functionAddress: Address[];
+    functionAddress: FunctionAddress[];
     exports: ExportInstance[];
 }
 
@@ -37,7 +37,7 @@ type FunctionInstance = {
 };
 
 // https://webassembly.github.io/spec/core/exec/runtime.html#syntax-store
-interface Store {
+export interface Store {
     functions: FunctionInstance[],
 }
 
@@ -54,15 +54,6 @@ interface Frame {
     module: ModuleInstance
 }
 type Activation = Frame[];
-
-
-
-// https://webassembly.github.io/spec/core/appendix/embedding.html#embed-store-init
-export function initStore(): Store {
-    return {
-        functions: []
-    };
-}
 
 // https://webassembly.github.io/spec/core/exec/modules.html#alloc-func
 function allocateFunction(fn: Function, store: Store, moduleInstance: ModuleInstance): FunctionAddress {
@@ -89,21 +80,27 @@ function allocateModule(store: Store, module: Module): ModuleInstance {
         exports: []
     };
 
-    const functionAddresses: FunctionAddress[] = [];
     for (const fn of module.functions) {
-        functionAddresses.push(allocateFunction(fn, store, moduleInstance));
+        moduleInstance.functionAddress.push(allocateFunction(fn, store, moduleInstance));
     }
 
     for (const exported of module.exports) {
-        const exportedType = exported.descriptor.type;
+        const { name, descriptor: { type } } = exported;
         
         let externalValue: ExternalValue; 
-        if (exportedType === 'function') {
+        if (type === 'function') {
             externalValue = {
                 type: 'function',
-                address: functionAddresses[exported.descriptor.index].address,
+                address: moduleInstance.functionAddress[exported.descriptor.index].address,
             }
+        } else {
+            throw new Error('Invalid export type');
         }
+
+        moduleInstance.exports.push({
+            name,
+            value: externalValue
+        });
     }
 
     return moduleInstance;
