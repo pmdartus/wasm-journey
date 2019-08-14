@@ -1,10 +1,10 @@
 import { FunctionType, Module, Function, ValueType, ConstantInstruction, Instruction, ExternalType } from "./structure";
 
 // https://webassembly.github.io/spec/core/exec/runtime.html#values
-type Value = ConstantInstruction;
+export type Value = ConstantInstruction;
 
 // https://webassembly.github.io/spec/core/exec/runtime.html#syntax-funcaddr
-type Address = number;
+export type Address = number;
 interface FunctionAddress {
     type: 'function';
     address: Address;
@@ -17,7 +17,7 @@ interface ExportInstance {
 }
 
 // https://webassembly.github.io/spec/core/exec/runtime.html#external-values
-type ExternalValue = FunctionAddress;
+export type ExternalValue = FunctionAddress;
 
 // https://webassembly.github.io/spec/core/exec/runtime.html#syntax-moduleinst
 export interface ModuleInstance {

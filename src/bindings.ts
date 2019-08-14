@@ -5,10 +5,14 @@ import {
     module_instantiate,
     module_exports,
     store_init,
+    instance_export,
+    func_type,
 } from './vm/main';
 
-// TODO: add missing types
-interface Instance {}
+// https://webassembly.github.io/spec/js-api/#instance
+interface Instance {
+    readonly exports: any;
+}
 
 // https://webassembly.github.io/spec/js-api/#enumdef-importexportkind
 type ImportExportKind = 'function' | 'table' | 'memory' | 'global';
@@ -25,9 +29,17 @@ interface InstantiatedSource {
     module: Module;
 }
 
+// https://webassembly.github.io/spec/js-api/#compileerror
 class CompilerError extends Error {
     get name() {
         return 'CompilerError';
+    }
+}
+
+// https://webassembly.github.io/spec/js-api/#runtimeerror
+class RuntimeError extends Error {
+    get name() {
+        return 'RuntimeError';
     }
 }
 
@@ -63,6 +75,9 @@ class Module {
 // https://webassembly.github.io/spec/js-api/#associated-store
 // Each agent have an associated store. In this case here, we create a single global store.
 let AGENT_STORE = store_init();
+
+// https://webassembly.github.io/spec/js-api/#object-caches
+const EXPORTED_FUNCTION_CACHE: { [address: number]: Function } = {};
 
 function copyBufferSource(bufferSource: BufferSource): ArrayBuffer {
     return bufferSource instanceof ArrayBuffer
@@ -108,7 +123,7 @@ function asyncCompileWasmModule(bytes: ArrayBuffer): Promise<Module> {
 
     const module: Module = {
         _bytes: bytes,
-        _module: res!
+        _module: res!,
     };
     Object.setPrototypeOf(module, Module.prototype);
 
@@ -121,6 +136,7 @@ function compile(bytes: BufferSource): Promise<Module> {
     return asyncCompileWasmModule(staledBytes);
 }
 
+// https://webassembly.github.io/spec/js-api/#read-the-imports
 function readImports(module: wasm.Module, importObject: any) {
     if (module.imports.length > 0 && importObject === undefined) {
         throw new TypeError('Invalid import object');
@@ -129,8 +145,155 @@ function readImports(module: wasm.Module, importObject: any) {
     // TODO
 }
 
+// https://webassembly.github.io/spec/js-api/#name-of-the-webassembly-function
+function getWasmFunctionName(functionAddress: number): string {
+    const functionInstance = AGENT_STORE.functions[functionAddress];
+
+    let index: number = 0;
+
+    // TODO
+    // if ('hostCode' in functionInstance) {
+    //     functionInstance.hostCode
+    // } else {
+
+    // }
+
+    return String(index);
+}
+
+// https://webassembly.github.io/spec/js-api/#a-new-exported-function
+function createExportedFunction(functionAddress: number): Function {
+    if (functionAddress in EXPORTED_FUNCTION_CACHE) {
+        return EXPORTED_FUNCTION_CACHE[functionAddress];
+    }
+
+    const functionType = func_type(AGENT_STORE, functionAddress);
+
+    const functionArguments = [...functionType.params].map((_, i) => `arg${i}`);
+    const functionName = getWasmFunctionName(functionAddress);
+
+    const functionBody = `
+        const fn = function ${functionName}(${functionArguments.join(', ')}) {
+            return steps(functionAddress, [${functionArguments.join(', ')}]);
+        }
+
+        fn._functionAddress = functionAddress;
+
+        return fn;
+    `;
+
+    const fn = new Function('functionAddress', 'steps', functionBody)(functionAddress, callExportedFunction);
+
+    EXPORTED_FUNCTION_CACHE[functionAddress] = fn;
+
+    return fn;
+}
+
+// https://webassembly.github.io/spec/js-api/#call-an-exported-function
+function callExportedFunction(functionAddress: number, argValues: any[]): any {
+    const { params, results } = func_type(AGENT_STORE, functionAddress);
+
+    if (results.includes(wasm.ValueType.i64)) {
+        throw new TypeError('Invalid i64 return type');
+    }
+
+    let i = 0;
+    const args: wasm.ConstantInstruction[] = [];
+
+    for (const type of params) {
+        const arg = argValues.length > i ? argValues[i] : undefined;
+        args.push(toWasmValue(arg, type));
+        i++;
+    }
+
+    const { store, ret } = wasm.func_invoke(AGENT_STORE, functionAddress, args);
+
+    AGENT_STORE = store;
+
+    if (ret instanceof Error) {
+        throw new RuntimeError(ret.message);
+    }
+
+    return toJsValue(ret[0]);
+}
+
+// https://webassembly.github.io/spec/js-api/#towebassemblyvalue
+function toWasmValue(value: any, type: wasm.ValueType): wasm.Value {
+    // TODO: Convert to assert
+    if (type === wasm.ValueType.i64) {
+        throw new TypeError();
+    }
+    
+    if (type === wasm.ValueType.i32) {
+        // https://tc39.es/ecma262/#sec-toint32
+        const int = Math.floor(Number(value));
+        const int32Bits = int % (2 ** 32);
+        const converted = int32Bits >= (2 ** 31) ? (int32Bits - (2 ** 32)) : int32Bits;
+        
+        // TODO: Share actual opcode
+        return {
+            opcode: 0x41,
+            value: converted
+        }
+    } else if (type === wasm.ValueType.f32) {
+        const converted = Number(value);
+
+        return {
+            opcode: 0x43,
+            value: converted
+        }
+    } else if (type === wasm.ValueType.f64) {
+        const converted = Number(value);
+
+        return {
+            opcode: 0x44,
+            value: converted
+        };
+    }
+
+    throw new Error('Invalid value type');
+}
+
+function toJsValue(value: wasm.Value): any {
+    // TODO: Convert to assert
+    if (value.opcode === 0x42) {
+        throw new TypeError();
+    }
+
+    return value.value;
+}
+
+// https://webassembly.github.io/spec/js-api/#create-an-instance-object
+function createInstanceObject(
+    module: wasm.Module,
+    instance: wasm.ModuleInstance,
+): Instance {
+    const exportObject: any = Object.create(null);
+    
+    for (const [name, type] of module_exports(module)) {
+        const externVal = instance_export(instance, name);
+
+        let value;
+        if (type === 'function') {
+            const { address } = externVal;
+            value = createExportedFunction(address);
+        }
+
+        exportObject[name] = value;
+    }
+
+    Object.freeze(exportObject);
+
+    return {
+        exports: exportObject
+    };
+}
+
 // https://webassembly.github.io/spec/js-api/#asynchronously-instantiate-a-webassembly-module
-function instantiateCoreWasmModule(module: wasm.Module, imports: any): wasm.ModuleInstance {
+function instantiateCoreWasmModule(
+    module: wasm.Module,
+    imports: any,
+): wasm.ModuleInstance {
     const store = AGENT_STORE;
     const result = module_instantiate(store, module);
 
@@ -141,16 +304,19 @@ function instantiateCoreWasmModule(module: wasm.Module, imports: any): wasm.Modu
 }
 
 // https://webassembly.github.io/spec/js-api/#asynchronously-instantiate-a-webassembly-module
-function asyncInstantiateWasmModule(module: Module, importObject: any): Promise<Instance> {
+function asyncInstantiateWasmModule(
+    module: Module,
+    importObject: any,
+): Promise<Instance> {
     const imports = readImports(module._module, importObject);
 
-    let instance;
     try {
-        instance = instantiateCoreWasmModule(module._module, imports);
+        let instance = instantiateCoreWasmModule(module._module, imports);
+        const instanceObject = createInstanceObject(module._module, instance);
+        return Promise.resolve(instanceObject);
     } catch (error) {
         return Promise.reject(error);
     }
-
 }
 
 // https://webassembly.github.io/spec/js-api/#instantiate-a-webassembly-module
@@ -171,9 +337,15 @@ function instantiateModulePromise(
 
 // https://webassembly.github.io/spec/js-api/#dom-webassembly-instantiate
 // https://webassembly.github.io/spec/js-api/#dom-webassembly-instantiate-moduleobject-importobject
-function instantiate(module: Module, importObject?: any): Promise<Instance>
-function instantiate(bytes: BufferSource, importObject?: any): Promise<InstantiatedSource>
-function instantiate(input: Module | BufferSource, importObject?: any): Promise<Instance | InstantiatedSource> {
+function instantiate(module: Module, importObject?: any): Promise<Instance>;
+function instantiate(
+    bytes: BufferSource,
+    importObject?: any,
+): Promise<InstantiatedSource>;
+function instantiate(
+    input: Module | BufferSource,
+    importObject?: any,
+): Promise<Instance | InstantiatedSource> {
     if (input instanceof Module) {
         return asyncInstantiateWasmModule(input, importObject);
     } else {
@@ -181,7 +353,6 @@ function instantiate(input: Module | BufferSource, importObject?: any): Promise<
         const modulePromise = asyncCompileWasmModule(staledBytes);
         return instantiateModulePromise(modulePromise, importObject);
     }
-
 }
 
 export default {
