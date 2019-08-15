@@ -42,7 +42,7 @@ export interface Store {
 }
 
 // https://webassembly.github.io/spec/core/exec/runtime.html#stack
-type StackEntry = Value | Activation;
+type StackEntry = Value | Activation | Frame;
 type Stack = StackEntry[];
 
 // https://webassembly.github.io/spec/core/exec/runtime.html#labels
@@ -53,7 +53,10 @@ interface Frame {
     locals: Value[],
     module: ModuleInstance
 }
-type Activation = Frame[];
+type Activation = Frame;
+
+// Make a global stack for now, but not sure if it is the best idea.
+const STACK: Stack = [];
 
 // https://webassembly.github.io/spec/core/exec/modules.html#alloc-func
 function allocateFunction(fn: Function, store: Store, moduleInstance: ModuleInstance): FunctionAddress {
@@ -110,4 +113,55 @@ function allocateModule(store: Store, module: Module): ModuleInstance {
 // https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation
 export function instantiateModule(store: Store, module: Module): ModuleInstance {
     return allocateModule(store, module);
+}
+
+// https://webassembly.github.io/spec/core/exec/instructions.html#exec-invoke
+function invokeFunction(functionAddress: Address) {
+
+}
+
+// https://webassembly.github.io/spec/core/exec/modules.html#exec-invocation
+export function invoke(store: Store, functionAddress: Address, values: Value[]): { store: Store, ret: Value[] | Error } {
+    // TODO: transform to assert
+    if (store.functions[functionAddress] === undefined) {
+        throw new TypeError('Invalid function address');
+    }
+
+    const functionInstance = store.functions[functionAddress]
+    
+    const { params } = functionInstance.type;
+    if (params.length !== values.length) {
+        throw new TypeError('Invalid parameter length');
+    }
+
+    for (let i = 0; i < params.length; i++) {
+        const type = params[i];
+        const constant = values[i];
+
+        // TODO: reuse the same opcodes
+        if (
+            (type === ValueType.i32 && constant.opcode !== 0x41) ||
+            (type === ValueType.i64 && constant.opcode !== 0x42) ||
+            (type === ValueType.f32 && constant.opcode !== 0x43) ||
+            (type === ValueType.f64 && constant.opcode !== 0x44) 
+        ) {
+            throw new TypeError('Type mismatch')
+        }
+    }
+
+    const frame: Frame = {
+        locals: [],
+        module: {
+            exports: [],
+            functionAddress: [],
+            types: []
+        }
+    };
+
+    STACK.push(frame);
+    STACK.push(...values);
+
+    invokeFunction(functionAddress);
+
+    // TODO
 }

@@ -1,5 +1,5 @@
-import { Module, FunctionType } from './structure';
-import { Store, ModuleInstance, ExternalValue, Address, Value } from './execute';
+import { Module, FunctionType, ValueType } from './structure';
+import { Store, ModuleInstance, ExternalValue, Address, Value, invoke } from './execute';
 
 // https://webassembly.github.io/spec/core/appendix/embedding.html#embed-module-exports
 export function module_exports(module: Module): [string, string][] {
@@ -32,5 +32,5 @@ export function func_type(store: Store, functionAddress: Address): FunctionType 
 
 // https://webassembly.github.io/spec/core/appendix/embedding.html#embed-func-invoke
 export function func_invoke(store: Store, functionAddress: Address, values: Value[]): { store: Store, ret: Value[] | Error } {
-
+    return invoke(store, functionAddress, values);
 }

@@ -216,3 +216,13 @@ In order to quickly verify the if the parser works as expected during as I was w
 
 https://github.com/WebAssembly/spec - WASM specifications + tests
 https://stackoverflow.com/a/51511486/3832710 - Node `Buffer` to `ArrayBuffer`
+
+# 14-08-2019
+
+There multiple concepts to understand when it comes to the WASM execution:
+
+* [**Module**](https://webassembly.github.io/spec/core/syntax/modules.html#modules): The WASM program unit, it holds the program logic, defines the interface and contains some initialization logic. A module can be instantiated multiple times. 
+* [**Instances**](https://webassembly.github.io/spec/core/exec/runtime.html#module-instances): The runtime representation of a module. This object holds a reference to the actual instances (function instances, tables instances, ...) address in the store.
+* [**Store**](https://webassembly.github.io/spec/core/exec/runtime.html#store): The store represents the global state of the WASM program. It holds all the instances of all the modules.
+
+Note: Bindings need to exports all the interfaces, so need to use classes instead of interfaces in typescript to represent the different interfaces.

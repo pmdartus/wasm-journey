@@ -9,11 +9,6 @@ import {
     func_type,
 } from './vm/main';
 
-// https://webassembly.github.io/spec/js-api/#instance
-interface Instance {
-    readonly exports: any;
-}
-
 // https://webassembly.github.io/spec/js-api/#enumdef-importexportkind
 type ImportExportKind = 'function' | 'table' | 'memory' | 'global';
 
@@ -43,6 +38,7 @@ class RuntimeError extends Error {
     }
 }
 
+// https://webassembly.github.io/spec/js-api/#module
 class Module {
     _module: wasm.Module;
     _bytes: ArrayBuffer;
@@ -69,6 +65,15 @@ class Module {
                 kind,
             } as ModuleExportsDescriptor;
         });
+    }
+}
+
+// https://webassembly.github.io/spec/js-api/#instance
+class Instance {
+    readonly exports: any;
+
+    constructor(module: Module, importObject: any) {
+        return instantiateWasmModule(module, importObject);
     }
 }
 
@@ -147,18 +152,8 @@ function readImports(module: wasm.Module, importObject: any) {
 
 // https://webassembly.github.io/spec/js-api/#name-of-the-webassembly-function
 function getWasmFunctionName(functionAddress: number): string {
-    const functionInstance = AGENT_STORE.functions[functionAddress];
-
-    let index: number = 0;
-
-    // TODO
-    // if ('hostCode' in functionInstance) {
-    //     functionInstance.hostCode
-    // } else {
-
-    // }
-
-    return String(index);
+    // The function address is the function name in the current implementation.
+    return String(functionAddress);
 }
 
 // https://webassembly.github.io/spec/js-api/#a-new-exported-function
@@ -173,16 +168,20 @@ function createExportedFunction(functionAddress: number): Function {
     const functionName = getWasmFunctionName(functionAddress);
 
     const functionBody = `
-        const fn = function ${functionName}(${functionArguments.join(', ')}) {
+        return function(${functionArguments.join(', ')}) {
             return steps(functionAddress, [${functionArguments.join(', ')}]);
         }
-
-        fn._functionAddress = functionAddress;
-
-        return fn;
     `;
 
-    const fn = new Function('functionAddress', 'steps', functionBody)(functionAddress, callExportedFunction);
+    const fn = new Function('functionAddress', 'steps', functionBody)(
+        functionAddress,
+        callExportedFunction,
+    );
+
+    Object.defineProperty(fn, 'name', {
+        value: functionName,
+        configurable: true,
+    })
 
     EXPORTED_FUNCTION_CACHE[functionAddress] = fn;
 
@@ -223,31 +222,32 @@ function toWasmValue(value: any, type: wasm.ValueType): wasm.Value {
     if (type === wasm.ValueType.i64) {
         throw new TypeError();
     }
-    
+
     if (type === wasm.ValueType.i32) {
         // https://tc39.es/ecma262/#sec-toint32
         const int = Math.floor(Number(value));
-        const int32Bits = int % (2 ** 32);
-        const converted = int32Bits >= (2 ** 31) ? (int32Bits - (2 ** 32)) : int32Bits;
-        
+        const int32Bits = int % 2 ** 32;
+        const converted =
+            int32Bits >= 2 ** 31 ? int32Bits - 2 ** 32 : int32Bits;
+
         // TODO: Share actual opcode
         return {
             opcode: 0x41,
-            value: converted
-        }
+            value: converted,
+        };
     } else if (type === wasm.ValueType.f32) {
         const converted = Number(value);
 
         return {
             opcode: 0x43,
-            value: converted
-        }
+            value: converted,
+        };
     } else if (type === wasm.ValueType.f64) {
         const converted = Number(value);
 
         return {
             opcode: 0x44,
-            value: converted
+            value: converted,
         };
     }
 
@@ -268,8 +268,8 @@ function createInstanceObject(
     module: wasm.Module,
     instance: wasm.ModuleInstance,
 ): Instance {
-    const exportObject: any = Object.create(null);
-    
+    const exportObject = Object.create(null);
+
     for (const [name, type] of module_exports(module)) {
         const externVal = instance_export(instance, name);
 
@@ -284,9 +284,11 @@ function createInstanceObject(
 
     Object.freeze(exportObject);
 
-    return {
-        exports: exportObject
-    };
+    // Instantiate an Instance object without having to invoke the constructor.
+    const instanceObject = Object.create(Instance.prototype);
+    instanceObject.exports = exportObject;
+
+    return instanceObject;
 }
 
 // https://webassembly.github.io/spec/js-api/#asynchronously-instantiate-a-webassembly-module
@@ -308,11 +310,13 @@ function asyncInstantiateWasmModule(
     module: Module,
     importObject: any,
 ): Promise<Instance> {
-    const imports = readImports(module._module, importObject);
+    const { _module } = module;
+
+    const imports = readImports(_module, importObject);
 
     try {
-        let instance = instantiateCoreWasmModule(module._module, imports);
-        const instanceObject = createInstanceObject(module._module, instance);
+        const instance = instantiateCoreWasmModule(_module, imports);
+        const instanceObject = createInstanceObject(_module, instance);
         return Promise.resolve(instanceObject);
     } catch (error) {
         return Promise.reject(error);
@@ -320,8 +324,12 @@ function asyncInstantiateWasmModule(
 }
 
 // https://webassembly.github.io/spec/js-api/#instantiate-a-webassembly-module
-function instantiateWasmModule() {
-    // TODO
+function instantiateWasmModule(module: Module, importObject: any): Instance {
+    const { _module } = module;
+
+    const imports = readImports(_module, importObject);
+    const instance = instantiateCoreWasmModule(_module, imports);
+    return createInstanceObject(_module, instance);
 }
 
 // https://webassembly.github.io/spec/js-api/#instantiate-a-promise-of-a-module
@@ -330,8 +338,12 @@ function instantiateModulePromise(
     imports: any,
 ): Promise<InstantiatedSource> {
     return modulePromise.then(module => {
-        // TODO
-        return {} as any;
+        const instance = instantiateWasmModule(module, imports);
+
+        return {
+            module,
+            instance,
+        };
     });
 }
 
@@ -361,4 +373,6 @@ export default {
     instantiate,
 
     CompilerError,
+    Module,
+    Instance,
 };
