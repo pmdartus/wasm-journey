@@ -1,4 +1,4 @@
-import { FunctionType, Module, Function, ValueType, ConstantInstruction, Instruction, ExternalType } from "./structure";
+import { FunctionType, Module, Function, ValueType, ConstantInstruction, Instruction, ExternalType, VariableInstruction } from "./structure";
 
 // https://webassembly.github.io/spec/core/exec/runtime.html#values
 export type Value = ConstantInstruction;
@@ -42,18 +42,24 @@ export interface Store {
 }
 
 // https://webassembly.github.io/spec/core/exec/runtime.html#stack
-type StackEntry = Value | Activation | Frame;
+type StackEntry = Value | Activation | Label;
 type Stack = StackEntry[];
 
 // https://webassembly.github.io/spec/core/exec/runtime.html#labels
-type Label = Instruction[];
+type Label = {
+    arity: number;
+    continuation: Instruction[]
+};
 
 // https://webassembly.github.io/spec/core/exec/runtime.html#activations-and-frames
 interface Frame {
     locals: Value[],
     module: ModuleInstance
 }
-type Activation = Frame;
+type Activation = { 
+    arity: number;
+    frame: Frame
+};
 
 // Make a global stack for now, but not sure if it is the best idea.
 const STACK: Stack = [];
@@ -115,9 +121,144 @@ export function instantiateModule(store: Store, module: Module): ModuleInstance 
     return allocateModule(store, module);
 }
 
-// https://webassembly.github.io/spec/core/exec/instructions.html#exec-invoke
-function invokeFunction(functionAddress: Address) {
+function currentFrame(): Frame {
+    let frame: Frame;
 
+    for (let i = STACK.length - 1; i >= 0; i--) {
+        const stackEntry = STACK[i]
+        if ('frame' in stackEntry) {
+            frame = stackEntry.frame;
+            break;
+        }
+    }
+
+    return frame!;
+}
+
+// https://webassembly.github.io/spec/core/bikeshed/index.html#instructions%E2%91%A4
+function executeInstruction(store: Store, instructions: Instruction[]) {
+    for (const instruction of instructions) {
+        console.log(instruction)
+        switch (instruction.opcode) {
+            // TODO: refactor this
+            // https://webassembly.github.io/spec/core/bikeshed/index.html#-hrefsyntax-instr-variablemathsflocalgetx%E2%91%A0
+            case 0x20:
+                const frame = currentFrame();
+                const index = (instruction as VariableInstruction).index;
+                const val = frame.locals[index];
+                STACK.push(val);
+                break;
+
+            // https://webassembly.github.io/spec/core/bikeshed/index.html#exec-binop
+            // https://webassembly.github.io/spec/core/bikeshed/index.html#op-iadd
+            case 0x6a:
+                const c2 = STACK.pop() as Value;
+                const c1 = STACK.pop() as Value;
+                const c: Value = {
+                    opcode: ValueType.i32,
+                    value: c1.value + c2.value
+                };
+                STACK.push(c);
+                break;
+        
+            default:
+                break;
+        }
+    }
+
+    exitInstructionBlock(store);
+}
+
+// https://webassembly.github.io/spec/core/exec/instructions.html#exec-instr-seq-enter
+function enterInstructionBlock(store: Store, instructions: Instruction[], label: Label) {
+    STACK.push(label);
+    executeInstruction(store, instructions);
+}
+
+function exitInstructionBlock(store: Store) {
+    const values: Value[] = [];
+    while ('opcode' in STACK[STACK.length - 1]) {
+        values.push(STACK.pop() as Value);
+    }
+
+    const _label = STACK.pop();
+
+    STACK.push(...values);
+}
+
+// https://webassembly.github.io/spec/core/exec/instructions.html#exec-block
+function executeBlock(store: Store, arity: number, instructions: Instruction[]) {
+    const label: Label = {
+        arity,
+        continuation: [instructions[instructions.length - 1]],
+    };
+
+    enterInstructionBlock(store, instructions, label);
+}
+
+// https://webassembly.github.io/spec/core/exec/instructions.html#exec-invoke
+function invokeFunction(store: Store, functionAddress: Address) {
+    const functionInstance = store.functions[functionAddress];
+    const { params, results } = functionInstance.type;
+
+    // TODO: Find a better way to represent hostCode.
+    if (!('code' in functionInstance)) {
+        throw new Error();
+    }
+
+    const { locals, body } = functionInstance.code;
+
+    const parameterValues: Value[] = [];
+    for (let i = 0; i < params.length; i++) {
+        parameterValues.push(STACK.pop() as Value);
+    }
+
+    const localValues: Value[] = [];
+    for (let i = 0; i < locals.length; i++) {
+        const type = locals[i];
+
+        // TODO: Find a better way to do this
+        let opcode: number;
+        switch (type) {
+            case ValueType.i32:
+                opcode = 0x41;
+                break;
+
+            case ValueType.i64:
+                opcode = 0x42;
+                break;
+
+            case ValueType.f32:
+                    opcode = 0x43;
+                    break;
+
+            case ValueType.f64:
+                    opcode = 0x44;
+                    break;
+        
+            default:
+                throw new Error();
+        }
+
+        localValues.push({
+            opcode,
+            value: 0,
+        })
+    }
+
+    const activation: Activation = {
+        arity: results.length,
+        frame: {
+            module: functionInstance.module,
+            locals: [
+                ...parameterValues,
+                ...localValues
+            ]
+        }
+    }
+    STACK.push(activation);
+
+    executeBlock(store, results.length, body.instructions);
 }
 
 // https://webassembly.github.io/spec/core/exec/modules.html#exec-invocation
@@ -127,9 +268,9 @@ export function invoke(store: Store, functionAddress: Address, values: Value[]):
         throw new TypeError('Invalid function address');
     }
 
-    const functionInstance = store.functions[functionAddress]
-    
-    const { params } = functionInstance.type;
+    const functionInstance = store.functions[functionAddress];
+    const { params, results } = functionInstance.type;
+
     if (params.length !== values.length) {
         throw new TypeError('Invalid parameter length');
     }
@@ -149,19 +290,26 @@ export function invoke(store: Store, functionAddress: Address, values: Value[]):
         }
     }
 
-    const frame: Frame = {
-        locals: [],
-        module: {
-            exports: [],
-            functionAddress: [],
-            types: []
+    const frame: Activation = {
+        arity: 0,
+        frame: {
+            locals: [],
+            module: {
+                exports: [],
+                functionAddress: [],
+                types: []
+            }
         }
     };
-
     STACK.push(frame);
     STACK.push(...values);
 
-    invokeFunction(functionAddress);
+    invokeFunction(store, functionAddress);
 
-    // TODO
+    const ret: Value[] = [];
+    for (let i = 0; i < results.length; i++) {
+        ret.push(STACK.pop() as Value);
+    }
+
+    return { store, ret };
 }
