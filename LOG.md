@@ -226,3 +226,36 @@ There multiple concepts to understand when it comes to the WASM execution:
 * [**Store**](https://webassembly.github.io/spec/core/exec/runtime.html#store): The store represents the global state of the WASM program. It holds all the instances of all the modules.
 
 Note: Bindings need to exports all the interfaces, so need to use classes instead of interfaces in typescript to represent the different interfaces.
+
+# 16-08-2019
+
+### Links
+https://github.com/kg/polyfill-prototype-2: Interesting attempt to make a polyfill
+https://en.wikipedia.org/wiki/String_(computer_science): How to represent strings? In a system where there are only 4 numeric types, how to represent strings, is a question that I asked myself multiple times:
+    * Null termination: C-style representation of a string, which consists of a list of characters (stored into a byte for example) and followed a `NULL` (stored a 0x00).
+    * Length prefix: Stored into a prefix the length of the string followed by the different characters.
+    * String as a record: internal implementation of a string using an object with 2 properties: 
+        * a pointer to the first character 
+        * and it's length
+
+In the [section about control flow](https://webassembly.org/docs/rationale/#control-flow) in the rational page, there is a section that spiked my interest.
+
+> Structured control flow provides simple and size-efficient binary encoding and compilation. Any control flow–even irreducible–can be transformed into structured control flow with the Relooper algorithm, with guaranteed low code size overhead, and typically minimal throughput overhead (except for pathological cases of irreducible control flow)
+
+What is the difference between structured control flow and control flow? It's the opposition between structured vs. unstructured programs. In a programing language with structured control flow, the programing language comes with primitives like branching (`if ... else ...`) and loops (`for ...`). While unstructured control flow, are using `goto` and `label` instructions. That can potentially introduce vulnerabilities in the generated code.
+
+* https://en.wikipedia.org/wiki/Control_flow
+* https://maurobringolf.ch/2018/04/structured-control-flow-in-webassembly-by-example/
+* https://people.mpi-sws.org/~rossberg/papers/Haas,%20Rossberg,%20Schuff,%20Titzer,%20Gohman,%20Wagner,%20Zakai,%20Bastien,%20Holman%20-%20Bringing%20the%20Web%20up%20to%20Speed%20with%20WebAssembly.pdf
+
+
+# 17-08-2019
+
+**What is the endian-ness (little endian vs. big endian)?**
+
+It refers to the way, multi bytes numbers get represented in memory. For example the unsigned integer `0x1234`, that requires at least 2 bytes in memory, is represented as `[0x12, 0x34]` in the big endian convention, and `[0x34, 0x12]` in the little endian convention. In the big endian convention the bytes are stored from the most significant to the least significant, and the opposite for little endian
+
+* https://en.wikipedia.org/wiki/Endianness: Source
+
+* https://searchfox.org/mozilla-central/source/js/src/wasm/: WASM C++ implementation in Firefox
+* https://binji.github.io/2017/03/04/webassembly-type-checking.html: Interesting article about type checking in WASM
