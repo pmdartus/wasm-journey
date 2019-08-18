@@ -1,6 +1,6 @@
 const assert = require('assert');
 
-const { default: WebAssembly } = require('../dist/bindings');
+const { default: WebAssembly } = require('../../dist/bindings');
 const { readExample } = require('./shared');
 
 const addBytes = readExample('./add.wasm');

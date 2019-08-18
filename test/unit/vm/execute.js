@@ -5,7 +5,7 @@ const {
     module_decode,
     module_instantiate,
     store_init,
-} = require('../../dist/vm/main');
+} = require('../../../dist/vm/main');
 
 describe('execute', () => {
     it('add.wasm', () => {

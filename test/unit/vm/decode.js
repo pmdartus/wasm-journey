@@ -1,6 +1,6 @@
 const assert = require('assert');
 
-const { module_decode } = require('../../dist/vm/main');
+const { module_decode } = require('../../../dist/vm/main');
 const { readExample } = require('../shared');
 
 describe('decode', () => {
