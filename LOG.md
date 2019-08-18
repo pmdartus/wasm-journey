@@ -259,3 +259,20 @@ It refers to the way, multi bytes numbers get represented in memory. For example
 
 * https://searchfox.org/mozilla-central/source/js/src/wasm/: WASM C++ implementation in Firefox
 * https://binji.github.io/2017/03/04/webassembly-type-checking.html: Interesting article about type checking in WASM
+
+# 18-08-2019
+
+## Integrate the spec tests
+
+The WASM spec tests can be found in the spec repository under the [test/](https://github.com/WebAssembly/spec/tree/master/test) directory. The test suite contains the core WASM tests but also the js api spec tests.
+
+In order to build the spec tests it is required to build the official [WASM interpreter](https://github.com/WebAssembly/spec/tree/master/interpreter). This interpreter is written in OCaml, before building the test suite it required to install the OCaml toolchain.
+
+```sh
+brew install ocaml
+brew install opam
+opam install ocamlfind ocamlbuild
+```
+
+Note: The `ocamlbuild` and `ocamlfind` are required to build the interpreter.
+

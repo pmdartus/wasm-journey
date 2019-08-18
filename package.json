@@ -6,7 +6,9 @@
   "scripts": {
     "start": "http-server -c-1 ./playground",
     "build": "tsc",
-    "test": "mocha"
+    "test": "mocha",
+    "init-spec-test": "git submodule update --init",
+    "reset-spec-test": "rm -rf test/spec/wasm && npm run init-spec-test"
   },
   "repository": {
     "type": "git",
