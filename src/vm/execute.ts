@@ -163,7 +163,6 @@ function currentFrame(): Frame {
 // https://webassembly.github.io/spec/core/bikeshed/index.html#instructions%E2%91%A4
 function executeInstruction(store: Store, instructions: Instruction[]) {
     for (const instruction of instructions) {
-        console.log(instruction);
         switch (instruction.opcode) {
             // TODO: refactor this
             // https://webassembly.github.io/spec/core/bikeshed/index.html#-hrefsyntax-instr-variablemathsflocalgetx%E2%91%A0
