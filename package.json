@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/pmdartus/wasm-journey#readme",
   "devDependencies": {
+    "glob": "^7.1.4",
     "http-server": "^0.11.1",
     "mocha": "^6.2.0",
     "typescript": "^3.5.3"
