@@ -3,7 +3,7 @@ const path = require('path');
 const chalk = require('chalk');
 const wptRunner = require('wpt-runner');
 
-const { default: WebAssembly } = require('./dist/bindings');
+const { default: WebAssembly } = require('../../dist/bindings');
 
 const reporter = {
     startSuite(msg) {
