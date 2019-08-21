@@ -63,8 +63,11 @@ function runTestSuite() {
 function runTestWorker(config) {
     const { file, scripts } = config;
 
+    global.self = global;
+    global.document = {};
+
     require(TEST_HARNESS);
-    require(TEST_HARNESS_REPORT);
+    // require(TEST_HARNESS_REPORT);
     require(TEST_HARNESS_JS);
 
     for (const script of scripts) {
