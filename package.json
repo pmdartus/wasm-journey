@@ -7,9 +7,9 @@
     "start": "http-server -c-1 ./playground",
     "build": "tsc",
     "test": "npm run test:unit && npm run test:spec:core && npm run test:spec:js-api",
-    "test:unit": "mocha test/unit",
-    "test:spec:core": "echo TODO",
-    "test:spec:js-api": "echo TODO",
+    "test:unit": "mocha test/unit --recursive",
+    "test:spec:core": "node test/spec/core.js",
+    "test:spec:js-api": "node test/spec/js-api.js",
     "spec:init": "git submodule update --init && npm run spec:build",
     "spec:build": "test/spec/wasm/test/build.py --js test/spec/wasm/test/_output",
     "spec:reset": "rm -rf test/spec/wasm && npm run spec:init"
