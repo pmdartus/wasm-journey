@@ -1,4 +1,7 @@
+# Tools artifacts
 node_modules/
 dist/
+.rpt2_cache
 
+# OS Artifacts
 .DS_Store

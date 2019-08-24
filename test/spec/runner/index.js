@@ -13,6 +13,9 @@ const FAILED = 'FAILED';
 
 const TEST_DIR = path.resolve(__dirname, '../wasm/test');
 
+const BELETTE_PATH = path.resolve(__dirname, '../../../dist/iife/belette.js');
+const BELETTE_CODE = fs.readFileSync(BELETTE_PATH, 'utf-8');
+
 // Note: Using an up to date version of the WPT test harness supporting a non browser environment.
 // The test harness in the web assembly submodule is not up to date.
 // https://github.com/web-platform-tests/wpt/commit/cb9176baeb50e0ee5a010218388e8120c09bab0f
@@ -148,10 +151,14 @@ function reportTests(results) {
 }
 
 function buildTestContext(config, meta, { onResult, onComplete }) {
-    const sandbox = {
-        WebAssembly,
-    };
+    const sandbox = {};
     const context = vm.createContext(sandbox);
+
+    // Evaluate belette code first and patch the global object
+    vm.runInContext(BELETTE_CODE, context, {
+        filename: BELETTE_PATH,
+    });
+    sandbox.belette.patchGlobal();
 
     // Evaluate the WPT test harness and attach the lifecycle callback on it
     // https://web-platform-tests.org/writing-tests/testharness-api.html#callback-api

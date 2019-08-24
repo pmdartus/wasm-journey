@@ -3,9 +3,7 @@
         "strict": true,
 
         "target": "esnext",
-        "module": "commonjs",
 
-        "outDir": "dist",
         "sourceMap": true,
         "declaration": true,
     },

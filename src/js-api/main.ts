@@ -1,4 +1,4 @@
-import * as wasm from './vm/main';
+import * as wasm from '../core/main';
 import {
     module_decode,
     module_validate,
@@ -7,7 +7,7 @@ import {
     store_init,
     instance_export,
     func_type,
-} from './vm/main';
+} from '../core/main';
 
 // https://webassembly.github.io/spec/js-api/#enumdef-importexportkind
 type ImportExportKind = 'function' | 'table' | 'memory' | 'global';
@@ -358,6 +358,7 @@ function instantiate(
     input: Module | BufferSource,
     importObject?: any,
 ): Promise<Instance | InstantiatedSource> {
+    debugger;
     if (input instanceof Module) {
         return asyncInstantiateWasmModule(input, importObject);
     } else {
@@ -367,7 +368,7 @@ function instantiate(
     }
 }
 
-export default {
+export {
     validate,
     compile,
     instantiate,

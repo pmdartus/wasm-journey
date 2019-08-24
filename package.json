@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "http-server -c-1 ./playground",
-    "build": "tsc",
+    "build": "rollup --config",
     "test": "npm run test:unit && npm run test:spec:core && npm run test:spec:js-api",
     "test:unit": "mocha test/unit --recursive",
     "test:spec:core": "node test/spec/core.js",
@@ -29,6 +29,8 @@
     "glob": "^7.1.4",
     "http-server": "^0.11.1",
     "mocha": "^6.2.0",
+    "rollup": "^1.20.1",
+    "rollup-plugin-typescript2": "^0.23.0",
     "typescript": "^3.5.3"
   }
 }
