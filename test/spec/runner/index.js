@@ -46,6 +46,11 @@ function getContent(filename, config) {
     return fs.readFileSync(getAbsolutePath(filename, config), 'utf-8');
 }
 
+function isExpectedToFail(filename, test, config) {
+    const { failures = {} } = config;
+    return filename in failures && failures[filename].includes(test.name);
+}
+
 function getMeta(code) {
     const matches = code.match(/\/\/ META: .+/g);
     if (!matches) {
@@ -71,10 +76,11 @@ function getMeta(code) {
 }
 
 function getTests(config) {
-    const { extension, base } = config;
+    const { extension, base, ignore = [] } = config;
 
     const files = glob.sync(`**/*${extension}`, {
         cwd: base,
+        ignore,
     });
 
     if (process.argv[2]) {
@@ -100,20 +106,44 @@ function reportTest(filename, results) {
             console.log(indent(`${chalk.green('✔')} ${test.name}`, 2));
         } else if (status === FAILED) {
             console.log(indent(`${chalk.red(`\u00D7 ${test.name}`)}`, 2));
-            console.log(indent(chalk.dim(`${test.stack}\n`), 4));
         }
     }
 }
 
 function reportTests(results) {
-    const passingTests = results.filter(result => result.status === PASS);
-    const failingTests = results.filter(result => result.status === FAILED);
+    const passing = results.filter(result => result.status === PASS);
+    const failed = results.filter(result => result.status === FAILED);
 
-    console.log(chalk.bold.green(`\n✔ ${passingTests.length} passing test.`));
-    if (failingTests.length) {
+    console.log(chalk.bold.green(`\n✔ ${passing.length} passing test.`));
+    if (failed.length) {
         console.log(
-            chalk.bold.red(`\u00D7 ${failingTests.length} failing test.`),
+            chalk.bold.red(`\u00D7 ${failed.length} failing test.`),
         );
+
+        const resultsByFilename = {};
+        for (const result of failed) {
+            if (resultsByFilename[result.filename]) {
+                resultsByFilename[result.filename].push(result);
+            } else {
+                resultsByFilename[result.filename] = [result];
+            }
+        }
+
+        for (const [filename, results] of Object.entries(resultsByFilename)) {
+            console.log(`\n${chalk.bold(filename)}`);
+
+            for (const { test } of results) {
+                console.log(indent(`${chalk.red(`\u00D7 ${test.name}`)}`, 2));
+
+                if (test.message) {
+                    console.log(indent(chalk.dim(`${test.message}\n`), 4));
+                }
+
+                if (test.stack) {
+                    console.log(indent(chalk.dim(`${test.stack}\n`), 4));
+                }
+            }
+        }
     }
 }
 
@@ -178,13 +208,27 @@ function runTest(filename, config) {
     return new Promise(resolve => {
         const callbacks = {
             onResult(test) {
+                const expectedToFail = isExpectedToFail(filename, test, config);
+
                 switch (test.status) {
                     case 1: // failure
                     case 2: // timeout
                     case 3: // incomplete
-                        return fail(test);
+                        // If the test is marked as expected to fail and fails, then report the
+                        // test as passing.
+                        return expectedToFail ? pass(test) : fail(test);
                     default:
-                        return pass(test);
+                        // If a test that is expected to fail start passing then report a failure 
+                        // an indicate that the list of failure need to be updated.
+                        if (expectedToFail) {
+                            return fail({
+                                ...test,
+                                message: 'This test is expected to fail but now start passing. Update the "failure" list.',
+                                stack: ''
+                            })
+                        } else {
+                            return pass(test);
+                        }
                 }
             },
             onComplete() {
@@ -229,7 +273,9 @@ async function run(config) {
 
     try {
         const results = await runTests(config);
-        code = results.filter(result => result.status === FAILED);
+
+        const failures = results.filter(result => result.status === FAILED);
+        code = failures.length;
     } catch (err) {
         console.error(err);
     }
