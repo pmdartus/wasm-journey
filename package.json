@@ -1,21 +1,25 @@
 {
   "name": "wasm-journey",
   "version": "1.0.0",
-  "description": "",
+  "description": "Experimental WASM interpreter written in javascript",
   "main": "index.js",
   "scripts": {
     "start": "http-server -c-1 ./playground",
     "build": "tsc",
-    "test": "mocha",
-    "init-spec-test": "git submodule update --init",
-    "reset-spec-test": "rm -rf test/spec/wasm && npm run init-spec-test"
+    "test": "npm run test:unit && npm run test:spec:core && npm run test:spec:js-api",
+    "test:unit": "mocha test/unit",
+    "test:spec:core": "echo TODO",
+    "test:spec:js-api": "echo TODO",
+    "spec:init": "git submodule update --init && npm run spec:build",
+    "spec:build": "test/spec/wasm/test/build.py --js test/spec/wasm/test/_output",
+    "spec:reset": "rm -rf test/spec/wasm && npm run spec:init"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/pmdartus/wasm-journey.git"
   },
-  "author": "",
-  "license": "ISC",
+  "author": "Pierre-Marie Dartus <dartus.pierremarie@gmail.com>",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/pmdartus/wasm-journey/issues"
   },
@@ -25,7 +29,6 @@
     "glob": "^7.1.4",
     "http-server": "^0.11.1",
     "mocha": "^6.2.0",
-    "typescript": "^3.5.3",
-    "wpt-runner": "^2.8.0"
+    "typescript": "^3.5.3"
   }
 }
