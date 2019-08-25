@@ -1,10 +1,14 @@
-import * as WebAssembly from './js-api/main';
+import WebAssemblyObject from './js-api/main';
 
 /** 
  * Patch the global object WebAssembly namespace with the package implementation.
  */
 export function patchGlobal() {
-    globalThis.WebAssembly = WebAssembly as any;
+    Object.defineProperty(globalThis, 'WebAssembly', {
+        value: WebAssemblyObject,
+        configurable: true,
+        writable: true,
+    });
 }
 
 export * from './js-api/main';
