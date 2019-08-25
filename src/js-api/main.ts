@@ -9,6 +9,9 @@ import {
     func_type,
 } from '../core/main';
 
+import { Global } from './globals';
+import { CompileError, LinkError, RuntimeError } from './errors';
+
 // https://webassembly.github.io/spec/js-api/#enumdef-importexportkind
 type ImportExportKind = 'function' | 'table' | 'memory' | 'global';
 
@@ -24,36 +27,25 @@ interface InstantiatedSource {
     module: Module;
 }
 
-// https://webassembly.github.io/spec/js-api/#compileerror
-class CompilerError extends Error {
-    get name() {
-        return 'CompilerError';
-    }
-}
-
-// https://webassembly.github.io/spec/js-api/#runtimeerror
-class RuntimeError extends Error {
-    get name() {
-        return 'RuntimeError';
-    }
-}
-
 // https://webassembly.github.io/spec/js-api/#module
 class Module {
     _module: wasm.Module;
     _bytes: ArrayBuffer;
 
     // https://webassembly.github.io/spec/js-api/#dom-module-module
-    constructor(bytes: ArrayBuffer) {
-        const stableBytes = bytes.slice(0);
+    constructor(bytes: BufferSource) {
+        if (!isBufferSource(bytes)) {
+            throw new TypeError('First argument must be a BufferSource.');
+        }
 
+        const stableBytes = copyBufferSource(bytes);
         const { err, res } = compileWasmModule(stableBytes);
         if (err) {
-            throw new CompilerError(err.message);
+            throw new CompileError(err.message);
         }
 
         this._module = res!;
-        this._bytes = bytes;
+        this._bytes = stableBytes;
     }
 
     // https://webassembly.github.io/spec/js-api/#dom-module-exports
@@ -77,12 +69,35 @@ class Instance {
     }
 }
 
+// https://webassembly.github.io/spec/js-api/#table
+class Table {}
+
+// https://webassembly.github.io/spec/js-api/#memory
+class Memory {}
+
 // https://webassembly.github.io/spec/js-api/#associated-store
 // Each agent have an associated store. In this case here, we create a single global store.
 let AGENT_STORE = store_init();
 
 // https://webassembly.github.io/spec/js-api/#object-caches
 const EXPORTED_FUNCTION_CACHE: { [address: number]: Function } = {};
+
+// https://heycam.github.io/webidl/#BufferSource
+function isBufferSource(obj: any): obj is BufferSource {
+    return (
+        obj instanceof ArrayBuffer ||
+        obj instanceof Int8Array ||
+        obj instanceof Int16Array ||
+        obj instanceof Int32Array ||
+        obj instanceof Uint8Array ||
+        obj instanceof Uint16Array ||
+        obj instanceof Uint32Array ||
+        obj instanceof Uint8ClampedArray ||
+        obj instanceof Float32Array ||
+        obj instanceof Float64Array ||
+        obj instanceof DataView
+    );
+}
 
 function copyBufferSource(bufferSource: BufferSource): ArrayBuffer {
     return bufferSource instanceof ArrayBuffer
@@ -123,7 +138,7 @@ function asyncCompileWasmModule(bytes: ArrayBuffer): Promise<Module> {
     const { err, res } = compileWasmModule(bytes);
 
     if (err) {
-        return Promise.reject(new CompilerError(err.message));
+        return Promise.reject(new CompileError(err.message));
     }
 
     const module: Module = {
@@ -136,7 +151,11 @@ function asyncCompileWasmModule(bytes: ArrayBuffer): Promise<Module> {
 }
 
 // https://webassembly.github.io/spec/js-api/#dom-webassembly-compile
-function compile(bytes: BufferSource): Promise<Module> {
+async function compile(bytes: BufferSource): Promise<Module> {
+    if (!isBufferSource(bytes)) {
+        throw new TypeError('First argument must be a BufferSource.');
+    }
+
     const staledBytes = copyBufferSource(bytes);
     return asyncCompileWasmModule(staledBytes);
 }
@@ -181,7 +200,7 @@ function createExportedFunction(functionAddress: number): Function {
     Object.defineProperty(fn, 'name', {
         value: functionName,
         configurable: true,
-    })
+    });
 
     EXPORTED_FUNCTION_CACHE[functionAddress] = fn;
 
@@ -349,31 +368,36 @@ function instantiateModulePromise(
 
 // https://webassembly.github.io/spec/js-api/#dom-webassembly-instantiate
 // https://webassembly.github.io/spec/js-api/#dom-webassembly-instantiate-moduleobject-importobject
-function instantiate(module: Module, importObject?: any): Promise<Instance>;
-function instantiate(
+async function instantiate(module: Module, importObject?: any): Promise<Instance>;
+async function instantiate(
     bytes: BufferSource,
     importObject?: any,
 ): Promise<InstantiatedSource>;
-function instantiate(
+async function instantiate(
     input: Module | BufferSource,
     importObject?: any,
 ): Promise<Instance | InstantiatedSource> {
-    debugger;
     if (input instanceof Module) {
         return asyncInstantiateWasmModule(input, importObject);
-    } else {
+    } else if (isBufferSource(input)) {
         const staledBytes = copyBufferSource(input);
         const modulePromise = asyncCompileWasmModule(staledBytes);
         return instantiateModulePromise(modulePromise, importObject);
     }
+
+    throw new TypeError('First argument must be a BufferSource or a Module.');
 }
 
 export {
     validate,
     compile,
     instantiate,
-
-    CompilerError,
+    CompileError,
+    LinkError,
+    RuntimeError,
     Module,
     Instance,
+    Memory,
+    Table,
+    Global
 };

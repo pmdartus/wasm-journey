@@ -26,9 +26,9 @@ interface Parser {
     offset: number;
 }
 
-function peakByte(parser: Parser): number {
+function peakByte(parser: Parser): number | null {
     if (isEndOfFile(parser)) {
-        throw new TypeError('Unexpected enf of file');
+        return null;
     }
 
     return parser.source.getUint8(parser.offset);

@@ -88,13 +88,13 @@ function getTests(config) {
 
     if (process.argv[2]) {
         const grep = process.argv[2];
-        const match = files.find(filename => filename === grep);
+        const matching = files.filter(filename => filename.includes(grep));
 
-        if (match === undefined) {
-            throw new Error(`${grep} not found`);
+        if (matching.length === 0) {
+            throw new Error(`No test matching "${grep}" found`);
         }
 
-        return [match];
+        return matching;
     } else {
         return files;
     }
