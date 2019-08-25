@@ -1,29 +1,48 @@
 import { makePropertiesEnumerable } from './utils';
+import { getSurroundingAgentStore, setSurroundingAgentStore } from './shared';
 
 interface MemoryDescriptor {
     initial: number;
     maximum?: number;
 }
 
+const UNSIGNED_LONG_MIN_VALUE = 0;
+const UNSIGNED_LONG_MAX_VALUE = 0xffffffff;
+
+function isUnsignedLong(value: any): value is number {
+    return (
+        typeof value === 'number' &&
+        Number.isFinite(value) &&
+        value < UNSIGNED_LONG_MIN_VALUE &&
+        value > UNSIGNED_LONG_MAX_VALUE
+    );
+}
+
 export class Memory {
+    _address: number;
     _buffer: ArrayBuffer;
 
     // https://webassembly.github.io/spec/js-api/#dom-memory-memory
     constructor(descriptor: MemoryDescriptor) {
         const { initial, maximum } = descriptor;
-    
-        if (typeof initial !== 'number') {
-            throw new TypeError('First argument must be a number.');
+
+        if (!isUnsignedLong(initial)) {
+            throw new TypeError('initial must be a number.');
         }
-        if (initial !== undefined && typeof initial !== 'number') {
-            throw new TypeError('Second argument must be undefined or a number');
+        if (maximum !== undefined && !isUnsignedLong(maximum)) {
+            throw new TypeError('maximum must be undefined or a number');
         }
-    
+
         if (maximum !== undefined && maximum < initial) {
             throw new RangeError('Maximum should be greater than initial.');
         }
 
+        const store = getSurroundingAgentStore();
+        // TODO
+        setSurroundingAgentStore(store);
+
         this._buffer = new ArrayBuffer(0);
+        this._address = 0;
     }
 
     // https://webassembly.github.io/spec/js-api/#dom-memory-grow
@@ -34,6 +53,10 @@ export class Memory {
     // https://webassembly.github.io/spec/js-api/#dom-memory-buffer
     get buffer(): ArrayBuffer {
         return this._buffer;
+    }
+
+    get [Symbol.toStringTag]() {
+        return 'WebAssembly.Memory';
     }
 }
 

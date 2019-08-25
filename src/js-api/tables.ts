@@ -30,6 +30,10 @@ export class Table {
     get length(): number {
         return 0;
     }
+
+    get [Symbol.toStringTag]() {
+        return "WebAssembly.Table";
+    }
 }
 
 makePropertiesEnumerable(Table.prototype, ['grow', 'get', 'set', 'length']);

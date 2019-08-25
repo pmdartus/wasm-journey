@@ -42,6 +42,10 @@ export class Module {
         this._bytes = stableBytes;
     }
 
+    get [Symbol.toStringTag]() {
+        return "WebAssembly.Module";
+    }
+
     static exports(module: Module): ModuleExportsDescriptor[] {
         return module_exports(module._module).map(([name, kind]) => {
             // TODO: Improve type guard here.

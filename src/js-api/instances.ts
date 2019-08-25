@@ -13,6 +13,10 @@ export class Instance {
     get exports() {
         return this._exports;
     }
+
+    get [Symbol.toStringTag]() {
+        return "WebAssembly.Instance";
+    }
 }
 
 makePropertiesEnumerable(Instance.prototype, ['exports']);

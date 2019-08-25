@@ -22,7 +22,15 @@ export interface InstantiatedSource {
 
 // https://webassembly.github.io/spec/js-api/#associated-store
 // Each agent have an associated store. In this case here, we create a single global store.
-let AGENT_STORE = store_init();
+export let AGENT_STORE = store_init();
+
+export function getSurroundingAgentStore(): wasm.Store {
+    return AGENT_STORE;
+}
+
+export function setSurroundingAgentStore(store: wasm.Store) {
+    AGENT_STORE = store;
+}
 
 // https://webassembly.github.io/spec/js-api/#object-caches
 const EXPORTED_FUNCTION_CACHE: { [address: number]: Function } = {};
@@ -227,7 +235,7 @@ function createInstanceObject(
 
     // Instantiate an Instance object without having to invoke the constructor.
     const instanceObject = Object.create(Instance.prototype);
-    instanceObject.exports = exportObject;
+    instanceObject._exports = exportObject;
 
     return instanceObject;
 }
