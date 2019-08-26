@@ -60,8 +60,30 @@ export class Module {
         return [];
     }
 
+    // https://webassembly.github.io/spec/js-api/#dom-module-customsections
     static customSections(module: Module, sectionName: string): ArrayBuffer[] {
-        return [];
+        if (!(module instanceof Module)) {
+            throw new TypeError('First argument must be a Module.');
+        }
+        if (typeof sectionName !== 'string') {
+            throw new TypeError('Second argument must be a DOMString.');
+        }
+
+        // No need to reparse the module to retrieve the custom section. The module holds a 
+        // reference to all the custom sections.
+        const moduleInternal = module._module;
+        const customSections: ArrayBuffer[] = [];
+
+        for (const custom of moduleInternal.customs) {
+            const { name, bytes } = custom;
+
+            if (name === sectionName) {
+                const copy = Int8Array.from(bytes).buffer;
+                customSections.push(copy);
+            }
+        }
+
+        return customSections;
     }
 }
 

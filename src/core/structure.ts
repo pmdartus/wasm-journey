@@ -9,6 +9,14 @@ export enum ValueType {
     f64,
 }
 
+// https://webassembly.github.io/spec/core/binary/modules.html#custom-section
+// This section doesn't contribute meaningfully to the semantic, but we need to keep it around 
+// to expose it to JS.
+export interface CustomSection {
+    name: string;
+    bytes: Byte[];
+}
+
 // https://webassembly.github.io/spec/core/syntax/types.html#result-types
 export type ResultType = ValueType[];
 
@@ -43,7 +51,10 @@ export interface ExternalType {
 }
 
 // https://webassembly.github.io/spec/core/syntax/instructions.html#instructions
-export type Instruction = NumericInstruction | ConstantInstruction | VariableInstruction;
+export type Instruction =
+    | NumericInstruction
+    | ConstantInstruction
+    | VariableInstruction;
 
 // https://webassembly.github.io/spec/core/syntax/instructions.html#numeric-instructions
 export interface NumericInstruction {
@@ -67,6 +78,7 @@ export interface Expression {
 
 // https://webassembly.github.io/spec/core/syntax/modules.html#modules
 export interface Module {
+    customs: CustomSection[];
     types: FunctionType[];
     functions: Function[];
     tables: Table[];

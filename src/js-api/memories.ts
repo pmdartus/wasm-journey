@@ -6,15 +6,14 @@ interface MemoryDescriptor {
     maximum?: number;
 }
 
-const UNSIGNED_LONG_MIN_VALUE = 0;
 const UNSIGNED_LONG_MAX_VALUE = 0xffffffff;
 
 function isUnsignedLong(value: any): value is number {
     return (
         typeof value === 'number' &&
         Number.isFinite(value) &&
-        value < UNSIGNED_LONG_MIN_VALUE &&
-        value > UNSIGNED_LONG_MAX_VALUE
+        value >= 0 &&
+        value <= UNSIGNED_LONG_MAX_VALUE
     );
 }
 

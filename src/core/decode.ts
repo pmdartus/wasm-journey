@@ -7,6 +7,13 @@ import {
     FunctionIndex,
     TypeIndex,
     Instruction,
+    CustomSection,
+    Byte,
+    Import,
+    Table,
+    Memory,
+    Global,
+    Data,
 } from './structure';
 import {
     MAGIC_NUMBER,
@@ -36,7 +43,7 @@ function peakByte(parser: Parser): number | null {
 
 function consumeByte(parser: Parser): number {
     if (isEndOfFile(parser)) {
-        throw new TypeError('Unexpected enf of file');
+        throw new TypeError('Unexpected end of file');
     }
 
     const value = parser.source.getUint8(parser.offset);
@@ -86,6 +93,11 @@ function decodeUInt32(parser: Parser) {
  * DECODE
  */
 
+// TODO: Remove when not necessary anymore.
+function skipSection(parser: Parser, size: number) {
+    parser.offset += size;
+}
+
 // https://webassembly.github.io/spec/core/binary/types.html#binary-valtype
 function decodeValueType(parser: Parser): ValueType {
     switch (consumeByte(parser)) {
@@ -118,6 +130,28 @@ function decodeName(parser: Parser): string {
     }
 
     return name;
+}
+
+// https://webassembly.github.io/spec/core/binary/modules.html#custom-section
+function decodeCustomSections(parser: Parser, customs: CustomSection[]): void {
+    while (peakByte(parser) === SectionId.Custom) {
+        const _sectionId = consumeByte(parser);
+        const sectionSize = consumeByte(parser);
+        const sectionEndOffset = parser.offset + sectionSize;
+
+        const name = decodeName(parser);
+        const bytes: Byte[] = [];
+
+        while (parser.offset < sectionEndOffset) {
+            const byte = consumeByte(parser);
+            bytes.push(byte);
+        }
+
+        customs.push({
+            name,
+            bytes
+        })
+    }
 }
 
 // https://webassembly.github.io/spec/core/binary/types.html#function-types
@@ -165,6 +199,23 @@ function decodeTypeSection(parser: Parser): FunctionType[] {
     return types;
 }
 
+// https://webassembly.github.io/spec/core/binary/modules.html#import-section
+function decodeImportSection(parser: Parser): Import[] {
+    const imports: Import[] = [];
+
+    if (peakByte(parser) !== SectionId.Import) {
+        return imports;
+    }
+
+    const _sectionId = consumeByte(parser);
+    const _sectionSize = decodeUInt32(parser);
+
+    // TODO
+    skipSection(parser, _sectionSize);
+
+    return imports;
+}
+
 // https://webassembly.github.io/spec/core/binary/modules.html#binary-funcsec
 function decodeFunctionSection(parser: Parser): TypeIndex[] {
     const functions: TypeIndex[] = [];
@@ -185,6 +236,57 @@ function decodeFunctionSection(parser: Parser): TypeIndex[] {
     }
 
     return functions;
+}
+
+// https://webassembly.github.io/spec/core/binary/modules.html#table-section
+function decodeTableSection(parser: Parser): Table[] {
+    const tables: Table[] = [];
+
+    if (peakByte(parser) !== SectionId.Table) {
+        return tables;
+    }
+
+    const _sectionId = consumeByte(parser);
+    const _sectionSize = decodeUInt32(parser);
+
+    // TODO
+    skipSection(parser, _sectionSize);
+
+    return tables;
+}
+
+// https://webassembly.github.io/spec/core/binary/modules.html#memory-section
+function decodeMemorySection(parser: Parser): Memory[] {
+    const memories: Memory[] = [];
+
+    if (peakByte(parser) !== SectionId.Memory) {
+        return memories;
+    }
+
+    const _sectionId = consumeByte(parser);
+    const _sectionSize = decodeUInt32(parser);
+
+    // TODO
+    skipSection(parser, _sectionSize);
+
+    return memories;
+}
+
+// https://webassembly.github.io/spec/core/binary/modules.html#global-section
+function decodeGlobalSection(parser: Parser): Global[] {
+    const globals: Global[] = [];
+
+    if (peakByte(parser) !== SectionId.Global) {
+        return globals;
+    }
+
+    const _sectionId = consumeByte(parser);
+    const _sectionSize = decodeUInt32(parser);
+
+    // TODO
+    skipSection(parser, _sectionSize);
+
+    return globals;
 }
 
 // https://webassembly.github.io/spec/core/binary/modules.html#binary-exportsec
@@ -229,6 +331,29 @@ function decodeExportSection(parser: Parser): Export[] {
     }
 
     return exports;
+}
+
+// https://webassembly.github.io/spec/core/binary/modules.html#start-section
+function decodeStartSection(parser: Parser): void {
+    if (peakByte(parser) !== SectionId.Start) {
+        return;
+    }
+
+    const _sectionId = consumeByte(parser);
+    const _sectionSize = decodeUInt32(parser);
+}
+
+// https://webassembly.github.io/spec/core/binary/modules.html#element-section
+function decodeElementSection(parser: Parser): Element[] {
+    const elements: Element[] = [];
+
+    if (peakByte(parser) !== SectionId.Elem) {
+        return elements;
+    }
+    const _sectionId = consumeByte(parser);
+    const _sectionSize = decodeUInt32(parser);
+
+    return elements;
 }
 
 // https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions
@@ -324,11 +449,26 @@ function decodeCodeSection(
     return codes;
 }
 
+// https://webassembly.github.io/spec/core/binary/modules.html#element-section
+function decodeDataSection(parser: Parser): Data[] {
+    const datas: Data[] = [];
+
+    if (peakByte(parser) !== SectionId.Data) {
+        return datas;
+    }
+    const _sectionId = consumeByte(parser);
+    const _sectionSize = decodeUInt32(parser);
+
+    return datas;
+}
+
+// https://webassembly.github.io/spec/core/binary/modules.html#binary-module
 export function decode(source: ArrayBuffer): Module {
     const parser: Parser = {
         source: new DataView(source),
         offset: 0,
     };
+    const customs: CustomSection[] = [];
 
     if (consumeBytes(parser, 4) !== MAGIC_NUMBER) {
         throw new Error('Invalid magic number');
@@ -338,25 +478,55 @@ export function decode(source: ArrayBuffer): Module {
         throw new Error('Invalid version number');
     }
 
+    // Custom sections can be injected at any place in the section sequence. While other sections
+    // can only appear once in a predefined order.
+    decodeCustomSections(parser, customs);
     const types = decodeTypeSection(parser);
+    decodeCustomSections(parser, customs);
+    const imports = decodeImportSection(parser);
+    decodeCustomSections(parser, customs);
     const functions = decodeFunctionSection(parser);
+    decodeCustomSections(parser, customs);
+    const tables = decodeTableSection(parser);
+    decodeCustomSections(parser, customs);
+    const memories = decodeMemorySection(parser);
+    decodeCustomSections(parser, customs);
+    const globals = decodeGlobalSection(parser);
+    decodeCustomSections(parser, customs);
     const exports = decodeExportSection(parser);
+    decodeCustomSections(parser, customs);
+    const start = decodeStartSection(parser);
+    decodeCustomSections(parser, customs);
+    const elements = decodeElementSection(parser);
+    decodeCustomSections(parser, customs);
     const codes = decodeCodeSection(parser);
+    decodeCustomSections(parser, customs);
+    const datas = decodeDataSection(parser);
+    decodeCustomSections(parser, customs);
 
-    return {
+    if (!isEndOfFile(parser)) {
+        throw new Error('Unexpected end of file');
+    }
+
+    const normalizedFunctions = functions.map((type, index) => {
+        return {
+            type,
+            ...codes[index],
+        };
+    });
+
+    const module: Module = {
+        customs,
         types,
-        functions: functions.map((type, index) => {
-            return {
-                type,
-                ...codes[index],
-            };
-        }),
-        tables: [],
-        memories: [],
-        globals: [],
-        elements: [],
-        datas: [],
-        imports: [],
+        functions: normalizedFunctions,
+        tables,
+        memories,
+        globals,
+        elements,
+        datas,
+        imports,
         exports,
     };
+
+    return module;
 }

@@ -22,7 +22,7 @@ const BELETTE_CODE = fs.readFileSync(BELETTE_PATH, 'utf-8');
 const WPT_HARNESS_PATH = path.resolve(__dirname, './testharness.js');
 const WPT_HARNESS_CODE = fs.readFileSync(WPT_HARNESS_PATH, 'utf-8');
 
-const JS_HARNESS_PATH = path.resolve(TEST_DIR, 'harness/async_index.js');
+const JS_HARNESS_PATH = path.resolve(TEST_DIR, 'harness/sync_index.js');
 const JS_HARNESS_CODE = fs.readFileSync(JS_HARNESS_PATH, 'utf-8');
 
 function indent(string, times) {

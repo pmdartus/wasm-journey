@@ -15,7 +15,6 @@ export enum SectionId {
     Elem = 9,
     Code = 10,
     Data = 11,
-    DataCount = 12,
 }
 
 // https://webassembly.github.io/spec/core/binary/types.html
