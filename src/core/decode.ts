@@ -14,6 +14,13 @@ import {
     Memory,
     Global,
     Data,
+    TableIndex,
+    MemoryIndex,
+    GlobalIndex,
+    TableType,
+    ElementType,
+    Limits,
+    MemoryType,
 } from './structure';
 import {
     MAGIC_NUMBER,
@@ -132,6 +139,27 @@ function decodeName(parser: Parser): string {
     return name;
 }
 
+// https://webassembly.github.io/spec/core/binary/types.html#limits
+function decodeLimits(parser: Parser): Limits {
+    const limitTypeCode = consumeByte(parser);
+    
+    switch (limitTypeCode) {
+        case 0x00:
+            return {
+                min: decodeUInt32(parser),
+            };
+
+        case 0x01:
+            return {
+                min: decodeUInt32(parser),
+                max: decodeUInt32(parser),
+            };
+    
+        default:
+            throw new Error(`Invalid limit type ${limitTypeCode}`);
+    }
+}
+
 // https://webassembly.github.io/spec/core/binary/modules.html#custom-section
 function decodeCustomSections(parser: Parser, customs: CustomSection[]): void {
     while (peakByte(parser) === SectionId.Custom) {
@@ -210,8 +238,54 @@ function decodeImportSection(parser: Parser): Import[] {
     const _sectionId = consumeByte(parser);
     const _sectionSize = decodeUInt32(parser);
 
-    // TODO
-    skipSection(parser, _sectionSize);
+    const importVecSize = decodeUInt32(parser);
+    for (let i = 0; i < importVecSize; i++) {
+        const module = decodeName(parser);
+        const name = decodeName(parser);
+        
+        const typeCode = consumeByte(parser);
+        const index = decodeUInt32(parser); 
+        
+        let descriptor: FunctionIndex | TableIndex | MemoryIndex | GlobalIndex;
+        switch (typeCode) {
+            case 0x00:
+                descriptor = {
+                    type: 'function',
+                    index,
+                }
+                break;
+            
+            case 0x01:
+                descriptor = {
+                    type: 'table',
+                    index,
+                }
+                break;
+
+            case 0x02:
+                descriptor = {
+                    type: 'memory',
+                    index,
+                }
+                break;
+
+            case 0x03:
+                descriptor = {
+                    type: 'global',
+                    index,
+                }
+                break;
+        
+            default:
+                throw new Error(`Invalid descriptor type ${typeCode}`);
+        }
+
+        imports.push({
+            module,
+            name,
+            descriptor
+        });
+    }
 
     return imports;
 }
@@ -238,6 +312,27 @@ function decodeFunctionSection(parser: Parser): TypeIndex[] {
     return functions;
 }
 
+// https://webassembly.github.io/spec/core/binary/types.html#binary-tabletype
+function decodeTableType(parser: Parser): TableType {
+    let elementType: ElementType;
+    
+    const elementTypeCode = consumeByte(parser);
+    switch (elementTypeCode) {
+        case 0x70:
+            elementType = ElementType.FuncRef;
+            break;
+        default:
+            throw new Error(`Invalid element type`)
+    }
+
+    const limit = decodeLimits(parser);
+
+    return {
+        elementType,
+        limit
+    };
+}
+
 // https://webassembly.github.io/spec/core/binary/modules.html#table-section
 function decodeTableSection(parser: Parser): Table[] {
     const tables: Table[] = [];
@@ -249,10 +344,18 @@ function decodeTableSection(parser: Parser): Table[] {
     const _sectionId = consumeByte(parser);
     const _sectionSize = decodeUInt32(parser);
 
-    // TODO
-    skipSection(parser, _sectionSize);
+    const tableVecSize = decodeUInt32(parser);
+    for (let i = 0; i < tableVecSize; i++) {
+        const type = decodeTableType(parser);
+        tables.push({ type });
+    }
 
     return tables;
+}
+
+// https://webassembly.github.io/spec/core/binary/types.html#binary-memtype
+function decodeMemoryType(parser: Parser): MemoryType {
+    return decodeLimits(parser);
 }
 
 // https://webassembly.github.io/spec/core/binary/modules.html#memory-section
@@ -266,8 +369,11 @@ function decodeMemorySection(parser: Parser): Memory[] {
     const _sectionId = consumeByte(parser);
     const _sectionSize = decodeUInt32(parser);
 
-    // TODO
-    skipSection(parser, _sectionSize);
+    const memoryVecSize = decodeUInt32(parser);
+    for (let i = 0; i < memoryVecSize; i++) {
+        const type = decodeMemoryType(parser);
+        memories.push({ type }); 
+    }
 
     return memories;
 }
