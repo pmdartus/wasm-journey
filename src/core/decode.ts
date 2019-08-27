@@ -22,7 +22,6 @@ import {
     Limits,
     MemoryType,
     GlobalType,
-    Index,
     Element,
     Start,
 } from './structure';
@@ -137,14 +136,63 @@ function decodeValueType(parser: Parser): ValueType {
     }
 }
 
+function decodeContinutationByte(parser: Parser): Byte {
+    const byte = consumeByte(parser);
+
+    // Throw an error if the byte doesn't have the right prefix.
+    // All the continutation bytes should have the same format: 10xxxxxx
+    if ((byte & 0xc0) !== 0x80) {
+        throw new Error('Invalid continuation byte');
+    }
+
+    // Return the meaningful part of the continuation byte by masking the prefix.
+    return byte & 0x3f;
+}
+
 // https://webassembly.github.io/spec/core/binary/values.html#binary-name
+//
+// The higher bits in the first byte contains a mask describing the number of byte encoding the
+// character. In UTF-8 characters can be encoded over 1 to 4 bytes.
 function decodeName(parser: Parser): string {
-    const chars = decodeVector(parser, () => {
-        const byte = consumeByte(parser);
-        return String.fromCharCode(byte);
+    const charCodes = decodeVector(parser, () => {
+        const byte1 = consumeByte(parser);
+
+        // 1 byte sequence with no continuation byte
+        // [0xxxxxxx]
+        if ((byte1 & 0x80) === 0) {
+            return byte1;
+        }
+
+        // 2 bytes sequence
+        // [110xxxxx, 10xxxxxx]
+        if ((byte1 & 0xe0) === 0xc0) {
+            const byte2 = decodeContinutationByte(parser);
+            return ((byte1 & 0x1f) << 6) | byte2;
+        }
+
+        // 3 bytes sequence
+        // [1110xxxx, 10xxxxxx, 10xxxxxx]
+        if ((byte1 & 0xf0) === 0xe0) {
+            const byte2 = decodeContinutationByte(parser);
+            const byte3 = decodeContinutationByte(parser);
+            return ((byte1 & 0x0f) << 12) | (byte2 << 6) | byte3;
+        }
+
+        // 4 bytes sequence
+        // [11110xxx, 10xxxxxx, 10xxxxxx, 10xxxxxx]
+        if ((byte1 & 0xf8) === 0xf0) {
+            const byte2 = decodeContinutationByte(parser);
+            const byte3 = decodeContinutationByte(parser);
+            const byte4 = decodeContinutationByte(parser);
+            return (
+                ((byte1 & 0x07) << 18) | (byte2 << 12) | (byte3 << 6) | byte4
+            );
+        }
+
+        throw new Error('Invalid UTF-8 encoding');
     });
 
-    return chars.join('');
+    return charCodes.map(charCode => String.fromCharCode(charCode)).join('');
 }
 
 // https://webassembly.github.io/spec/core/binary/types.html#limits
@@ -626,6 +674,10 @@ export function decode(source: ArrayBuffer): Module {
 
     if (!isEndOfFile(parser)) {
         throw new Error('Unexpected end of file');
+    }
+
+    if (functions.length !== codes.length) {
+        throw new Error('Different length for code and function section');
     }
 
     const normalizedFunctions = functions.map((type, index) => {
