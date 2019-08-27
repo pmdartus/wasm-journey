@@ -46,10 +46,15 @@ export interface TableType {
   limit: Limits;
 }
 
+export enum GlobalTypeMutability {
+  constant,
+  variable
+}
+
 // https://webassembly.github.io/spec/core/syntax/types.html#global-types
 export interface GlobalType {
   valueType: ValueType;
-  mutability: 'constant' | 'variable';
+  mutability: GlobalTypeMutability;
 }
 
 // https://webassembly.github.io/spec/core/syntax/types.html#external-types

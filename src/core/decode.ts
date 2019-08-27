@@ -24,6 +24,7 @@ import {
     GlobalType,
     Element,
     Start,
+    GlobalTypeMutability,
 } from './structure';
 
 import {
@@ -197,9 +198,7 @@ function decodeName(parser: Parser): string {
 
 // https://webassembly.github.io/spec/core/binary/types.html#limits
 function decodeLimits(parser: Parser): Limits {
-    const limitTypeCode = consumeByte(parser);
-
-    switch (limitTypeCode) {
+    switch (consumeByte(parser)) {
         case 0x00:
             return {
                 min: decodeUInt32(parser),
@@ -212,7 +211,7 @@ function decodeLimits(parser: Parser): Limits {
             };
 
         default:
-            throw new Error(`Invalid limit type ${limitTypeCode}`);
+            throw new Error(`Invalid limit type`);
     }
 }
 
@@ -372,9 +371,7 @@ function decodeFunctionSection(parser: Parser): TypeIndex[] {
 // https://webassembly.github.io/spec/core/binary/types.html#binary-tabletype
 function decodeTableType(parser: Parser): TableType {
     let elementType: ElementType;
-
-    const elementTypeCode = consumeByte(parser);
-    switch (elementTypeCode) {
+    switch (consumeByte(parser)) {
         case 0x70:
             elementType = ElementType.FuncRef;
             break;
@@ -422,18 +419,17 @@ function decodeMemorySection(parser: Parser): Memory[] {
 function decodeGlobalType(parser: Parser): GlobalType {
     const valueType = decodeValueType(parser);
 
-    let mutability: 'constant' | 'variable';
-    const mutabilityCode = consumeByte(parser);
-    switch (mutabilityCode) {
+    let mutability: GlobalTypeMutability;
+    switch (consumeByte(parser)) {
         case 0x00:
-            mutability = 'constant';
+            mutability = GlobalTypeMutability.constant;
             break;
 
         case 0x01:
-            mutability = 'variable';
+            mutability = GlobalTypeMutability.variable;
 
         default:
-            throw new Error(`Invalid mutability code ${mutabilityCode}`);
+            throw new Error(`Invalid mutability code`);
     }
 
     return {
@@ -531,6 +527,39 @@ function decodeInstruction(parser: Parser): Instruction {
     const opcode = consumeByte(parser);
 
     switch (opcode) {
+        // Control flow
+        case OpCode.Unreachable:
+        case OpCode.Nop: {
+
+        }
+
+        case OpCode.Block:
+        case OpCode.Loop:
+        case OpCode.If: {
+
+        }
+
+        case OpCode.Br:
+        case OpCode.BrIf: {
+
+        }
+
+        case OpCode.BrTable: {
+
+        }
+
+        case OpCode.Return: {
+
+        }
+
+        case OpCode.Call: {
+
+        }
+
+        case OpCode.CallIndirect: {
+
+        }
+
         case OpCode.GetLocal:
         case OpCode.SetLocal:
         case OpCode.TeeLocal:

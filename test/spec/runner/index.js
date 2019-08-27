@@ -50,8 +50,17 @@ function getContent(filename, config) {
 }
 
 function isExpectedToFail(filename, test, config) {
-    const { failures = {} } = config;
-    return filename in failures && failures[filename].includes(test.name);
+    const { expected } = config;
+
+    if (expected === undefined || expected[filename] === undefined) {
+        return false;
+    }
+
+    const match = expected[filename].find(entry => {
+        return entry[0] === test.name
+    });
+
+    return match && match[1] === 'FAIL';
 }
 
 function getMeta(code) {
