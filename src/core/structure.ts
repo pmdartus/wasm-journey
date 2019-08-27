@@ -48,7 +48,8 @@ export interface TableType {
 
 // https://webassembly.github.io/spec/core/syntax/types.html#global-types
 export interface GlobalType {
-  // TODO
+  valueType: ValueType;
+  mutability: 'constant' | 'variable';
 }
 
 // https://webassembly.github.io/spec/core/syntax/types.html#external-types
@@ -149,6 +150,13 @@ export interface Memory {
 export interface Global {
   type: GlobalType;
   initializer: Expression;
+}
+
+// https://webassembly.github.io/spec/core/syntax/modules.html#element-segments
+export interface Element {
+  table: Index;
+  offset: Expression;
+  initializer: Index[];
 }
 
 // https://webassembly.github.io/spec/core/syntax/modules.html#data-segments

@@ -21,7 +21,12 @@ import {
     ElementType,
     Limits,
     MemoryType,
+    GlobalType,
+    Index,
+    Element,
+    Start,
 } from './structure';
+
 import {
     MAGIC_NUMBER,
     VERSION_NUMBER,
@@ -100,9 +105,16 @@ function decodeUInt32(parser: Parser) {
  * DECODE
  */
 
-// TODO: Remove when not necessary anymore.
-function skipSection(parser: Parser, size: number) {
-    parser.offset += size;
+// https://webassembly.github.io/spec/core/binary/conventions.html#vectors
+function decodeVector<T>(parser: Parser, itemCallback: () => T): T[] {
+    const items: T[] = [];
+    const length = decodeUInt32(parser);
+
+    for (let i = 0; i < length; i++) {
+        items.push(itemCallback());
+    }
+
+    return items;
 }
 
 // https://webassembly.github.io/spec/core/binary/types.html#binary-valtype
@@ -127,22 +139,18 @@ function decodeValueType(parser: Parser): ValueType {
 
 // https://webassembly.github.io/spec/core/binary/values.html#binary-name
 function decodeName(parser: Parser): string {
-    let name: string = '';
-    const vecLength = decodeUInt32(parser);
+    const chars = decodeVector(parser, () => {
+        const byte = consumeByte(parser);
+        return String.fromCharCode(byte);
+    });
 
-    // TODO: Need to better understand this encoding
-    for (let i = 0; i < vecLength; i++) {
-        const b1 = consumeByte(parser);
-        name += String.fromCharCode(b1);
-    }
-
-    return name;
+    return chars.join('');
 }
 
 // https://webassembly.github.io/spec/core/binary/types.html#limits
 function decodeLimits(parser: Parser): Limits {
     const limitTypeCode = consumeByte(parser);
-    
+
     switch (limitTypeCode) {
         case 0x00:
             return {
@@ -154,31 +162,57 @@ function decodeLimits(parser: Parser): Limits {
                 min: decodeUInt32(parser),
                 max: decodeUInt32(parser),
             };
-    
+
         default:
             throw new Error(`Invalid limit type ${limitTypeCode}`);
     }
 }
 
+// https://webassembly.github.io/spec/core/binary/modules.html#sections
+function decodeSection<T>(
+    parser: Parser,
+    sectionId: SectionId,
+    sectionCallback: (size: number) => T,
+): T | undefined {
+    if (peakByte(parser) !== sectionId) {
+        return;
+    }
+
+    // Consume the section id if it matches.
+    consumeByte(parser);
+
+    const size = decodeUInt32(parser);
+    const endOffset = parser.offset + size;
+
+    const res = sectionCallback(size);
+
+    // Assert the section has the expected size.
+    if (parser.offset !== endOffset) {
+        throw new Error('Invalid section size');
+    }
+
+    return res;
+}
+
 // https://webassembly.github.io/spec/core/binary/modules.html#custom-section
 function decodeCustomSections(parser: Parser, customs: CustomSection[]): void {
     while (peakByte(parser) === SectionId.Custom) {
-        const _sectionId = consumeByte(parser);
-        const sectionSize = consumeByte(parser);
-        const sectionEndOffset = parser.offset + sectionSize;
+        decodeSection(parser, SectionId.Custom, size => {
+            const sectionEndOffset = parser.offset + size;
 
-        const name = decodeName(parser);
-        const bytes: Byte[] = [];
+            const name = decodeName(parser);
+            const bytes: Byte[] = [];
 
-        while (parser.offset < sectionEndOffset) {
-            const byte = consumeByte(parser);
-            bytes.push(byte);
-        }
+            while (parser.offset < sectionEndOffset) {
+                const byte = consumeByte(parser);
+                bytes.push(byte);
+            }
 
-        customs.push({
-            name,
-            bytes
-        })
+            customs.push({
+                name,
+                bytes,
+            });
+        });
     }
 }
 
@@ -188,20 +222,13 @@ function decodeType(parser: Parser): FunctionType {
         throw new Error('Invalid function type prefix');
     }
 
-    const params: ValueType[] = [];
-    const results: ValueType[] = [];
+    const params = decodeVector(parser, () => {
+        return decodeValueType(parser);
+    });
 
-    const paramsVecSize = decodeUInt32(parser);
-    for (let i = 0; i < paramsVecSize; i++) {
-        const valueType = decodeValueType(parser);
-        params.push(valueType);
-    }
-
-    const resultsVecSize = decodeUInt32(parser);
-    for (let i = 0; i < resultsVecSize; i++) {
-        const valueType = decodeValueType(parser);
-        results.push(valueType);
-    }
+    const results = decodeVector(parser, () => {
+        return decodeValueType(parser);
+    });
 
     return {
         params,
@@ -211,146 +238,120 @@ function decodeType(parser: Parser): FunctionType {
 
 // https://webassembly.github.io/spec/core/binary/modules.html#binary-typesec
 function decodeTypeSection(parser: Parser): FunctionType[] {
-    const types: FunctionType[] = [];
-
-    if (peakByte(parser) !== SectionId.Type) {
-        return types;
-    }
-    const _sectionId = consumeByte(parser);
-    const _sectionSize = decodeUInt32(parser);
-
-    const typeVecSize = decodeUInt32(parser);
-    for (let i = 0; i < typeVecSize; i++) {
-        types.push(decodeType(parser));
-    }
-
-    return types;
+    return (
+        decodeSection(parser, SectionId.Type, () => {
+            return decodeVector(parser, () => {
+                return decodeType(parser);
+            });
+        }) || []
+    );
 }
 
 // https://webassembly.github.io/spec/core/binary/modules.html#import-section
 function decodeImportSection(parser: Parser): Import[] {
-    const imports: Import[] = [];
+    return (
+        decodeSection(parser, SectionId.Import, () => {
+            return decodeVector(parser, () => {
+                const module = decodeName(parser);
+                const name = decodeName(parser);
 
-    if (peakByte(parser) !== SectionId.Import) {
-        return imports;
-    }
+                const typeCode = consumeByte(parser);
+                const index = decodeUInt32(parser);
 
-    const _sectionId = consumeByte(parser);
-    const _sectionSize = decodeUInt32(parser);
+                let descriptor:
+                    | FunctionIndex
+                    | TableIndex
+                    | MemoryIndex
+                    | GlobalIndex;
+                switch (typeCode) {
+                    case 0x00:
+                        descriptor = {
+                            type: 'function',
+                            index,
+                        };
+                        break;
 
-    const importVecSize = decodeUInt32(parser);
-    for (let i = 0; i < importVecSize; i++) {
-        const module = decodeName(parser);
-        const name = decodeName(parser);
-        
-        const typeCode = consumeByte(parser);
-        const index = decodeUInt32(parser); 
-        
-        let descriptor: FunctionIndex | TableIndex | MemoryIndex | GlobalIndex;
-        switch (typeCode) {
-            case 0x00:
-                descriptor = {
-                    type: 'function',
-                    index,
+                    case 0x01:
+                        descriptor = {
+                            type: 'table',
+                            index,
+                        };
+                        break;
+
+                    case 0x02:
+                        descriptor = {
+                            type: 'memory',
+                            index,
+                        };
+                        break;
+
+                    case 0x03:
+                        descriptor = {
+                            type: 'global',
+                            index,
+                        };
+                        break;
+
+                    default:
+                        throw new Error(`Invalid descriptor type ${typeCode}`);
                 }
-                break;
-            
-            case 0x01:
-                descriptor = {
-                    type: 'table',
-                    index,
-                }
-                break;
 
-            case 0x02:
-                descriptor = {
-                    type: 'memory',
-                    index,
-                }
-                break;
-
-            case 0x03:
-                descriptor = {
-                    type: 'global',
-                    index,
-                }
-                break;
-        
-            default:
-                throw new Error(`Invalid descriptor type ${typeCode}`);
-        }
-
-        imports.push({
-            module,
-            name,
-            descriptor
-        });
-    }
-
-    return imports;
+                return {
+                    module,
+                    name,
+                    descriptor,
+                };
+            });
+        }) || []
+    );
 }
 
 // https://webassembly.github.io/spec/core/binary/modules.html#binary-funcsec
 function decodeFunctionSection(parser: Parser): TypeIndex[] {
-    const functions: TypeIndex[] = [];
-
-    if (peakByte(parser) !== SectionId.Function) {
-        return functions;
-    }
-    const _sectionId = consumeByte(parser);
-    const _sectionSize = decodeUInt32(parser);
-
-    const functionVecSize = decodeUInt32(parser);
-    for (let i = 0; i < functionVecSize; i++) {
-        const funTypeIndex = decodeUInt32(parser);
-        functions.push({
-            type: 'type',
-            index: funTypeIndex,
-        });
-    }
-
-    return functions;
+    return (
+        decodeSection(parser, SectionId.Function, () => {
+            return decodeVector(parser, () => {
+                const funTypeIndex = decodeUInt32(parser);
+                return {
+                    type: 'type',
+                    index: funTypeIndex,
+                };
+            });
+        }) || []
+    );
 }
 
 // https://webassembly.github.io/spec/core/binary/types.html#binary-tabletype
 function decodeTableType(parser: Parser): TableType {
     let elementType: ElementType;
-    
+
     const elementTypeCode = consumeByte(parser);
     switch (elementTypeCode) {
         case 0x70:
             elementType = ElementType.FuncRef;
             break;
         default:
-            throw new Error(`Invalid element type`)
+            throw new Error(`Invalid element type`);
     }
 
     const limit = decodeLimits(parser);
 
     return {
         elementType,
-        limit
+        limit,
     };
 }
 
 // https://webassembly.github.io/spec/core/binary/modules.html#table-section
 function decodeTableSection(parser: Parser): Table[] {
-    const tables: Table[] = [];
-
-    if (peakByte(parser) !== SectionId.Table) {
-        return tables;
-    }
-
-    const _sectionId = consumeByte(parser);
-    const _sectionSize = decodeUInt32(parser);
-
-    const tableVecSize = decodeUInt32(parser);
-    for (let i = 0; i < tableVecSize; i++) {
-        const type = decodeTableType(parser);
-        tables.push({ type });
-    }
-
-    return tables;
+    return (
+        decodeSection(parser, SectionId.Table, () => {
+            return decodeVector(parser, () => {
+                const type = decodeTableType(parser);
+                return { type };
+            });
+        }) || []
+    );
 }
 
 // https://webassembly.github.io/spec/core/binary/types.html#binary-memtype
@@ -360,39 +361,52 @@ function decodeMemoryType(parser: Parser): MemoryType {
 
 // https://webassembly.github.io/spec/core/binary/modules.html#memory-section
 function decodeMemorySection(parser: Parser): Memory[] {
-    const memories: Memory[] = [];
+    return (
+        decodeSection(parser, SectionId.Memory, () => {
+            return decodeVector(parser, () => {
+                const type = decodeMemoryType(parser);
+                return { type };
+            });
+        }) || []
+    );
+}
 
-    if (peakByte(parser) !== SectionId.Memory) {
-        return memories;
+function decodeGlobalType(parser: Parser): GlobalType {
+    const valueType = decodeValueType(parser);
+
+    let mutability: 'constant' | 'variable';
+    const mutabilityCode = consumeByte(parser);
+    switch (mutabilityCode) {
+        case 0x00:
+            mutability = 'constant';
+            break;
+
+        case 0x01:
+            mutability = 'variable';
+
+        default:
+            throw new Error(`Invalid mutability code ${mutabilityCode}`);
     }
 
-    const _sectionId = consumeByte(parser);
-    const _sectionSize = decodeUInt32(parser);
-
-    const memoryVecSize = decodeUInt32(parser);
-    for (let i = 0; i < memoryVecSize; i++) {
-        const type = decodeMemoryType(parser);
-        memories.push({ type }); 
-    }
-
-    return memories;
+    return {
+        valueType,
+        mutability,
+    };
 }
 
 // https://webassembly.github.io/spec/core/binary/modules.html#global-section
-function decodeGlobalSection(parser: Parser): Global[] {
-    const globals: Global[] = [];
+function decodeGlobalSection(parser: Parser): Global[] | undefined {
+    return decodeSection(parser, SectionId.Global, () => {
+        return decodeVector(parser, () => {
+            const type = decodeGlobalType(parser);
+            const initializer = decodeExpression(parser);
 
-    if (peakByte(parser) !== SectionId.Global) {
-        return globals;
-    }
-
-    const _sectionId = consumeByte(parser);
-    const _sectionSize = decodeUInt32(parser);
-
-    // TODO
-    skipSection(parser, _sectionSize);
-
-    return globals;
+            return {
+                type,
+                initializer,
+            };
+        });
+    });
 }
 
 // https://webassembly.github.io/spec/core/binary/modules.html#binary-exportsec
@@ -423,43 +437,45 @@ function decodeExport(parser: Parser): Export {
 
 // https://webassembly.github.io/spec/core/binary/modules.html#binary-exportsec
 function decodeExportSection(parser: Parser): Export[] {
-    const exports: Export[] = [];
-
-    if (peakByte(parser) !== SectionId.Export) {
-        return exports;
-    }
-    const _sectionId = consumeByte(parser);
-    const _sectionSize = decodeUInt32(parser);
-
-    const exportVecSize = consumeByte(parser);
-    for (let i = 0; i < exportVecSize; i++) {
-        exports.push(decodeExport(parser));
-    }
-
-    return exports;
+    return (
+        decodeSection(parser, SectionId.Export, () => {
+            return decodeVector(parser, () => {
+                return decodeExport(parser);
+            });
+        }) || []
+    );
 }
 
 // https://webassembly.github.io/spec/core/binary/modules.html#start-section
-function decodeStartSection(parser: Parser): void {
-    if (peakByte(parser) !== SectionId.Start) {
-        return;
-    }
-
-    const _sectionId = consumeByte(parser);
-    const _sectionSize = decodeUInt32(parser);
+function decodeStartSection(parser: Parser): Start | undefined {
+    return decodeSection(parser, SectionId.Start, () => {
+        const index = decodeUInt32(parser);
+        return {
+            function: index,
+        };
+    });
 }
 
 // https://webassembly.github.io/spec/core/binary/modules.html#element-section
 function decodeElementSection(parser: Parser): Element[] {
-    const elements: Element[] = [];
+    return (
+        decodeSection(parser, SectionId.Elem, () => {
+            return decodeVector(parser, () => {
+                const table = decodeUInt32(parser);
+                const offset = decodeExpression(parser);
 
-    if (peakByte(parser) !== SectionId.Elem) {
-        return elements;
-    }
-    const _sectionId = consumeByte(parser);
-    const _sectionSize = decodeUInt32(parser);
+                const initializer = decodeVector(parser, () => {
+                    return decodeUInt32(parser);
+                });
 
-    return elements;
+                return {
+                    table,
+                    offset,
+                    initializer,
+                };
+            });
+        }) || []
+    );
 }
 
 // https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions
@@ -536,36 +552,34 @@ function decodeCodeSection(
     locals: ValueType[];
     body: Expression;
 }[] {
-    const codes: {
-        locals: ValueType[];
-        body: Expression;
-    }[] = [];
-
-    if (peakByte(parser) !== SectionId.Code) {
-        return codes;
-    }
-    const _sectionId = consumeByte(parser);
-    const _sectionSize = decodeUInt32(parser);
-
-    const codeVecSize = decodeUInt32(parser);
-    for (let i = 0; i < codeVecSize; i++) {
-        codes.push(decodeCode(parser));
-    }
-
-    return codes;
+    return (
+        decodeSection(parser, SectionId.Code, () => {
+            return decodeVector(parser, () => {
+                return decodeCode(parser);
+            });
+        }) || []
+    );
 }
 
-// https://webassembly.github.io/spec/core/binary/modules.html#element-section
+// https://webassembly.github.io/spec/core/binary/modules.html#data-section
 function decodeDataSection(parser: Parser): Data[] {
-    const datas: Data[] = [];
+    return (
+        decodeSection(parser, SectionId.Data, () => {
+            return decodeVector(parser, () => {
+                const data = decodeUInt32(parser);
+                const offset = decodeExpression(parser);
+                const initializer = decodeVector(parser, () => {
+                    return consumeByte(parser);
+                });
 
-    if (peakByte(parser) !== SectionId.Data) {
-        return datas;
-    }
-    const _sectionId = consumeByte(parser);
-    const _sectionSize = decodeUInt32(parser);
-
-    return datas;
+                return {
+                    data,
+                    offset,
+                    initializer,
+                };
+            });
+        }) || []
+    );
 }
 
 // https://webassembly.github.io/spec/core/binary/modules.html#binary-module
@@ -587,23 +601,23 @@ export function decode(source: ArrayBuffer): Module {
     // Custom sections can be injected at any place in the section sequence. While other sections
     // can only appear once in a predefined order.
     decodeCustomSections(parser, customs);
-    const types = decodeTypeSection(parser);
+    const types = decodeTypeSection(parser) || [];
     decodeCustomSections(parser, customs);
-    const imports = decodeImportSection(parser);
+    const imports = decodeImportSection(parser) || [];
     decodeCustomSections(parser, customs);
-    const functions = decodeFunctionSection(parser);
+    const functions = decodeFunctionSection(parser) || [];
     decodeCustomSections(parser, customs);
-    const tables = decodeTableSection(parser);
+    const tables = decodeTableSection(parser) || [];
     decodeCustomSections(parser, customs);
-    const memories = decodeMemorySection(parser);
+    const memories = decodeMemorySection(parser) || [];
     decodeCustomSections(parser, customs);
-    const globals = decodeGlobalSection(parser);
+    const globals = decodeGlobalSection(parser) || [];
     decodeCustomSections(parser, customs);
-    const exports = decodeExportSection(parser);
+    const exports = decodeExportSection(parser) || [];
     decodeCustomSections(parser, customs);
     const start = decodeStartSection(parser);
     decodeCustomSections(parser, customs);
-    const elements = decodeElementSection(parser);
+    const elements = decodeElementSection(parser) || [];
     decodeCustomSections(parser, customs);
     const codes = decodeCodeSection(parser);
     decodeCustomSections(parser, customs);
@@ -628,6 +642,7 @@ export function decode(source: ArrayBuffer): Module {
         tables,
         memories,
         globals,
+        start,
         elements,
         datas,
         imports,
