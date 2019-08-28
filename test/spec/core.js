@@ -7,7 +7,6 @@ run({
 
     expected: {
         'address.wast.js': [
-            ['#1 module successfully instantiated', 'FAIL'],
             ['#2 A wast module that must return a particular value.', 'FAIL'],
             ['#3 A wast module that must return a particular value.', 'FAIL'],
             ['#4 A wast module that must return a particular value.', 'FAIL'],
@@ -93,7 +92,6 @@ run({
             ['#84 A wast module that must trap at runtime.', 'FAIL'],
             ['#85 A wast module that must trap at runtime.', 'FAIL'],
             ['#86 A wast module that must trap at runtime.', 'FAIL'],
-            ['#88 module successfully instantiated', 'FAIL'],
             [
                 '#89 A wast test that runs without any special assertion.',
                 'FAIL',

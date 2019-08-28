@@ -34,6 +34,7 @@ import {
     SectionId,
     OpCode,
     ExportKind,
+    ImportKind,
 } from './constants';
 
 /**
@@ -87,7 +88,7 @@ function isEndOfFile(parser: Parser): boolean {
 // Implementation borrowed from: https://www.javatips.net/api/android-libcore64-master/dex/src/main/java/com/android/dex/Leb128.java
 //
 // https://en.wikipedia.org/wiki/LEB128
-function decodeUInt32(parser: Parser) {
+function decodeUInt32(parser: Parser): number {
     let result = 0;
     let count = 0;
 
@@ -99,6 +100,19 @@ function decodeUInt32(parser: Parser) {
     } while ((current & 0x80) === 0x80);
 
     return result;
+}
+
+function decodeInt32(parser: Parser): number {
+    return 0;
+}
+function decodeInt64(parser: Parser): number {
+    return 0;
+}
+function decodeFloat32(parser: Parser): number {
+    return 0;
+}
+function decodeFloat64(parser: Parser): number {
+    return 0;
 }
 
 /**
@@ -311,28 +325,28 @@ function decodeImportSection(parser: Parser): Import[] {
                     | MemoryIndex
                     | GlobalIndex;
                 switch (typeCode) {
-                    case 0x00:
+                    case ImportKind.Function:
                         descriptor = {
                             type: 'function',
                             index,
                         };
                         break;
 
-                    case 0x01:
+                    case ImportKind.Table:
                         descriptor = {
                             type: 'table',
                             index,
                         };
                         break;
 
-                    case 0x02:
+                    case ImportKind.Memory:
                         descriptor = {
                             type: 'memory',
                             index,
                         };
                         break;
 
-                    case 0x03:
+                    case ImportKind.Global:
                         descriptor = {
                             type: 'global',
                             index,
@@ -522,6 +536,16 @@ function decodeElementSection(parser: Parser): Element[] {
     );
 }
 
+// https://webassembly.github.io/spec/core/binary/types.html#binary-blocktype
+function decodeResultTypes(parser: Parser): ValueType[] {
+    if (peakByte(parser) === 0x40) {
+        consumeByte(parser);
+        return [];
+    }
+
+    return [decodeValueType(parser)];
+}
+
 // https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions
 function decodeInstruction(parser: Parser): Instruction {
     const opcode = consumeByte(parser);
@@ -530,50 +554,293 @@ function decodeInstruction(parser: Parser): Instruction {
         // Control flow
         case OpCode.Unreachable:
         case OpCode.Nop: {
-
+            return { opcode };
         }
 
         case OpCode.Block:
-        case OpCode.Loop:
-        case OpCode.If: {
+        case OpCode.Loop: {
+            const resultTypes = decodeResultTypes(parser);
+            const instructions: Instruction[] = [];
 
+            while (peakByte(parser) !== OpCode.End) {
+                const instruction = decodeInstruction(parser);
+                instructions.push(instruction);
+            }
+
+            return {
+                opcode,
+                resultTypes,
+                instructions,
+            };
+        }
+
+        case OpCode.If: {
+            const resultTypes = decodeResultTypes(parser);
+            const ifInstructions: Instruction[] = [];
+            const elseInstructions: Instruction[] = [];
+
+            while (
+                peakByte(parser) !== OpCode.End &&
+                peakByte(parser) !== OpCode.Else
+            ) {
+                const instruction = decodeInstruction(parser);
+                ifInstructions.push(instruction);
+            }
+
+            while (peakByte(parser) !== OpCode.End) {
+                const instruction = decodeInstruction(parser);
+                elseInstructions.push(instruction);
+            }
+
+            return {
+                opcode,
+                resultTypes,
+                ifInstructions,
+                elseInstructions,
+            };
         }
 
         case OpCode.Br:
         case OpCode.BrIf: {
-
+            return {
+                opcode,
+                labelIndex: decodeUInt32(parser),
+            };
         }
 
         case OpCode.BrTable: {
-
+            // TODO
         }
 
         case OpCode.Return: {
-
+            return { opcode };
         }
 
-        case OpCode.Call: {
-
-        }
+        // Call operators
+        case OpCode.Call:
+            return {
+                opcode,
+                functionIndex: {
+                    type: 'function',
+                    index: decodeUInt32(parser),
+                },
+            };
 
         case OpCode.CallIndirect: {
+            const index = decodeUInt32(parser);
 
+            const suffix = decodeUInt32(parser);
+            if (suffix !== OpCode.Unreachable) {
+                throw new Error('Invalid call_indirect instruction');
+            }
+
+            return {
+                opcode,
+                typeIndex: {
+                    type: 'type',
+                    index,
+                },
+            };
         }
 
+        // Parametric operators
+        case OpCode.Drop:
+        case OpCode.Select: {
+            return { opcode };
+        }
+
+        // Variable access
         case OpCode.GetLocal:
         case OpCode.SetLocal:
-        case OpCode.TeeLocal:
-        case OpCode.GetGlobal:
-        case OpCode.SetGlobal:
+        case OpCode.TeeLocal: {
             return {
                 opcode,
-                index: decodeUInt32(parser),
+                localIndex: {
+                    type: 'local',
+                    index: decodeUInt32(parser),
+                },
             };
+        }
 
-        case OpCode.I32Add:
+        case OpCode.GetGlobal:
+        case OpCode.SetGlobal: {
             return {
                 opcode,
+                globalIndex: {
+                    type: 'global',
+                    index: decodeUInt32(parser),
+                },
             };
+        }
+
+        // Memory-related operators
+        case OpCode.I32Load:
+        case OpCode.I64Load:
+        case OpCode.F32Load:
+        case OpCode.F64Load:
+        case OpCode.I32Load8S:
+        case OpCode.I32Load8U:
+        case OpCode.I32Load16S:
+        case OpCode.I32Load16U:
+        case OpCode.I64Load8S:
+        case OpCode.I64Load8U:
+        case OpCode.I64Load16S:
+        case OpCode.I64Load16U:
+        case OpCode.I64Load32S:
+        case OpCode.I64Load32U:
+        case OpCode.I32Store:
+        case OpCode.I64Store:
+        case OpCode.F32Store:
+        case OpCode.F64Store:
+        case OpCode.I32Store8:
+        case OpCode.I32Store16:
+        case OpCode.I64Store8:
+        case OpCode.I64Store16:
+        case OpCode.I64Store32: {
+            const align = decodeUInt32(parser);
+            const offset = decodeUInt32(parser);
+            return {
+                opcode,
+                align,
+                offset,
+            };
+        }
+
+        case OpCode.MemoryGrow:
+        case OpCode.MemorySize: {
+            if (consumeByte(parser) !== OpCode.Unreachable) {
+                throw new Error('Invalid memory operation');
+            }
+
+            return { opcode };
+        }
+
+        // Constants
+        case OpCode.I32Const: {
+            return {
+                opcode,
+                value: decodeInt32(parser),
+            };
+        }
+        case OpCode.I64Const: {
+            return {
+                opcode,
+                value: decodeInt64(parser),
+            };
+        }
+        case OpCode.F32Const: {
+            return {
+                opcode,
+                value: decodeFloat32(parser),
+            };
+        }
+        case OpCode.F64Const: {
+            return {
+                opcode,
+                value: decodeFloat64(parser),
+            };
+        }
+
+        // Numeric operators
+        case OpCode.I32Clz:
+        case OpCode.I32Ctz:
+        case OpCode.I32Popcnt:
+        case OpCode.I32Add:
+        case OpCode.I32Sub:
+        case OpCode.I32Mul:
+        case OpCode.I32DivS:
+        case OpCode.I32DivU:
+        case OpCode.I32RemS:
+        case OpCode.I32RemU:
+        case OpCode.I32And:
+        case OpCode.I32Or:
+        case OpCode.I32Xor:
+        case OpCode.I32Shl:
+        case OpCode.I32ShrS:
+        case OpCode.I32ShrU:
+        case OpCode.I32Rotl:
+        case OpCode.I32Rotr:
+        case OpCode.I64Clz:
+        case OpCode.I64Ctz:
+        case OpCode.I64Popcnt:
+        case OpCode.I64Add:
+        case OpCode.I64Sub:
+        case OpCode.I64Mul:
+        case OpCode.I64DivS:
+        case OpCode.I64DivU:
+        case OpCode.I64RemS:
+        case OpCode.I64RemU:
+        case OpCode.I64And:
+        case OpCode.I64Or:
+        case OpCode.I64Xor:
+        case OpCode.I64Shl:
+        case OpCode.I64ShrS:
+        case OpCode.I64ShrU:
+        case OpCode.I64Rotl:
+        case OpCode.I64Rotr:
+        case OpCode.F32Abs:
+        case OpCode.F32Neg:
+        case OpCode.F32Ceil:
+        case OpCode.F32Floor:
+        case OpCode.F32Trunc:
+        case OpCode.F32Nearest:
+        case OpCode.F32Sqrt:
+        case OpCode.F32Add:
+        case OpCode.F32Sub:
+        case OpCode.F32Mul:
+        case OpCode.F32Div:
+        case OpCode.F32Min:
+        case OpCode.F32Max:
+        case OpCode.F32CopySign:
+        case OpCode.F64Abs:
+        case OpCode.F64Neg:
+        case OpCode.F64Ceil:
+        case OpCode.F64Floor:
+        case OpCode.F64Trunc:
+        case OpCode.F64Nearest:
+        case OpCode.F64Sqrt:
+        case OpCode.F64Add:
+        case OpCode.F64Sub:
+        case OpCode.F64Mul:
+        case OpCode.F64Div:
+        case OpCode.F64Min:
+        case OpCode.F64Max:
+        case OpCode.F64CopySign: {
+            return { opcode };
+        }
+
+        // Conversions
+        case OpCode.I32WrapI64:
+        case OpCode.I32TruncSF32:
+        case OpCode.I32TruncUF32:
+        case OpCode.I32TruncSF64:
+        case OpCode.I32TruncUF64:
+        case OpCode.I64ExtendSI32:
+        case OpCode.I64ExtendUI32:
+        case OpCode.I64TruncSF32:
+        case OpCode.I64TruncUF32:
+        case OpCode.I64TruncSF64:
+        case OpCode.I64TruncUF64:
+        case OpCode.F32ConvertSI32:
+        case OpCode.F32ConvertUI32:
+        case OpCode.F32ConvertSI64:
+        case OpCode.F32ConvertUI64:
+        case OpCode.F32DemoteF64:
+        case OpCode.F64ConvertSI32:
+        case OpCode.F64ConvertUI32:
+        case OpCode.F64ConvertSI64:
+        case OpCode.F64ConvertUI64:
+        case OpCode.F64PromoteF32: {
+            return { opcode };
+        }
+
+        // Reinterpretations
+        case OpCode.I32ReinterpretF32:
+        case OpCode.I64ReinterpretF64:
+        case OpCode.F32ReinterpretI32:
+        case OpCode.F64ReinterpretI64: {
+            return { opcode };
+        }
 
         default: {
             throw new TypeError(`Invalid opcode ${opcode}`);

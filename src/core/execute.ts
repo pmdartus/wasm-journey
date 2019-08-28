@@ -5,7 +5,7 @@ import {
     ValueType,
     ConstantInstruction,
     Instruction,
-    VariableInstruction,
+    LocalInstruction,
 } from './structure';
 import { OpCode } from './constants';
 
@@ -168,7 +168,7 @@ function executeInstruction(store: Store, instructions: Instruction[]) {
             // https://webassembly.github.io/spec/core/bikeshed/index.html#-hrefsyntax-instr-variablemathsflocalgetx%E2%91%A0
             case OpCode.GetLocal:
                 const frame = currentFrame();
-                const index = (instruction as VariableInstruction).index;
+                const { index } = (instruction as LocalInstruction).localIndex;
                 const val = frame.locals[index];
                 STACK.push(val);
                 break;

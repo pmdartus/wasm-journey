@@ -29,12 +29,25 @@ export enum TypeCode {
     Func = 0x60,
 }
 
+// https://webassembly.github.io/spec/core/binary/modules.html#import-section
+export enum ImportKind {
+    Function = 0x00,
+    Table = 0x01,
+    Memory = 0x02,
+    Global = 0x03,
+}
+
 // https://webassembly.github.io/spec/core/binary/modules.html#binary-exportsec
 export enum ExportKind {
     Function = 0x00,
     Table = 0x01,
     Memory = 0x02,
     Global = 0x03,
+}
+
+// https://webassembly.github.io/spec/core/binary/types.html#binary-tabletype
+export enum TableType {
+    FunctionRef = 0x70
 }
 
 // https://webassembly.github.io/spec/core/binary/instructions.html
