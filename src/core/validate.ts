@@ -1,4 +1,4 @@
-import { FunctionType, Module, ValueType, Export, Function } from './structure';
+import { FunctionType, Module, ValueType, Export, Function, Start } from './structure';
 
 // https://webassembly.github.io/spec/core/valid/conventions.html#context
 interface Context {
@@ -16,6 +16,11 @@ function validateFunctionType(functionType: FunctionType) {
 // https://webassembly.github.io/spec/core/valid/modules.html#valid-module
 function validateFunction(fn: Function) {
     // TODO
+}
+
+// https://webassembly.github.io/spec/core/valid/modules.html#start-function
+function validateStart(context: Context, start: Start) {
+    
 }
 
 // https://webassembly.github.io/spec/core/valid/modules.html#exports
@@ -45,6 +50,10 @@ export function validate(module: Module) {
 
     for (const fn of module.functions) {
         validateFunction(fn);
+    }
+
+    if (module.start !== undefined) {
+        validateStart(context, module.start);
     }
 
     for (const exportedValue of exports) {

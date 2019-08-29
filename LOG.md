@@ -259,6 +259,7 @@ It refers to the way, multi bytes numbers get represented in memory. For example
 
 * https://searchfox.org/mozilla-central/source/js/src/wasm/: WASM C++ implementation in Firefox
 * https://binji.github.io/2017/03/04/webassembly-type-checking.html: Interesting article about type checking in WASM
+* https://github.com/xtuc/webassemblyjs/tree/master/packages/webassemblyjs
 
 # 18-08-2019
 

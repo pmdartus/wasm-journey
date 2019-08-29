@@ -37,10 +37,7 @@ import {
     ImportKind,
 } from './constants';
 
-/**
- * PARSER
- */
-
+//#region Parser
 interface Parser {
     source: DataView;
     offset: number;
@@ -77,48 +74,9 @@ function consumeBytes(parser: Parser, count: number): number {
 function isEndOfFile(parser: Parser): boolean {
     return parser.offset === parser.source.byteLength;
 }
+//#endregion Parser
 
-/**
- * HELPERS
- */
-
-// TODO: Need to come back to this to make the code cleaner!
-//
-// Wiki: https://webassembly.github.io/spec/core/binary/values.html#integers
-// Implementation borrowed from: https://www.javatips.net/api/android-libcore64-master/dex/src/main/java/com/android/dex/Leb128.java
-//
-// https://en.wikipedia.org/wiki/LEB128
-function decodeUInt32(parser: Parser): number {
-    let result = 0;
-    let count = 0;
-
-    let current: number;
-    do {
-        current = consumeByte(parser);
-        result |= (current & 0x7f) << (count * 7);
-        count++;
-    } while ((current & 0x80) === 0x80);
-
-    return result;
-}
-
-function decodeInt32(parser: Parser): number {
-    return 0;
-}
-function decodeInt64(parser: Parser): number {
-    return 0;
-}
-function decodeFloat32(parser: Parser): number {
-    return 0;
-}
-function decodeFloat64(parser: Parser): number {
-    return 0;
-}
-
-/**
- * DECODE
- */
-
+//#region Conventions
 // https://webassembly.github.io/spec/core/binary/conventions.html#vectors
 function decodeVector<T>(parser: Parser, itemCallback: () => T): T[] {
     const items: T[] = [];
@@ -130,25 +88,93 @@ function decodeVector<T>(parser: Parser, itemCallback: () => T): T[] {
 
     return items;
 }
+//#endregion Conventions
 
-// https://webassembly.github.io/spec/core/binary/types.html#binary-valtype
-function decodeValueType(parser: Parser): ValueType {
-    switch (consumeByte(parser)) {
-        case TypeCode.I32:
-            return ValueType.i32;
+//#region Values
+/**
+ * LEB128 stance for Little Endian Base 218 which is a variable length code compression for integer.
+ * More details: https://en.wikipedia.org/wiki/LEB128
+ */
 
-        case TypeCode.I64:
-            return ValueType.i64;
+const NUMBER_OF_BYTES_U32 = 4; // 32/8
+const NUMBER_OF_BYTES_U64 = 8; // 64/8
 
-        case TypeCode.F32:
-            return ValueType.f32;
+// Base on the specification, integer encoding must not exceed ceil(N/7)
+// https://webassembly.github.io/spec/core/binary/values.html#integers
+const MAX_NUMBER_OF_BYTE_U32 = 5;   // ceil(32/7)
+const MAX_NUMBER_OF_BYTE_U64 = 10;  // ceil(64/7)
 
-        case TypeCode.F64:
-            return ValueType.f64;
+// https://en.wikipedia.org/wiki/LEB128#Decode_unsigned_integer
+function decodeUnsignedLeb128(parser: Parser, maxByteNumber: number): number {
+    let result = 0;
+    let shift = 0;
+    let byte: number;
 
-        default:
-            throw new Error('Invalid value type');
+    do {
+        byte = consumeByte(parser);
+        
+        // Extract the low order 7 bits of byte, left shift the byte and add them to the current
+        // result.
+        result |= (byte & 0x7f) << (shift * 7);
+
+        // Increase the shift by one.
+        shift++;
+
+        // Repeat until the highest order bit (0x80) is 0.
+    } while ((byte & 0x80) === 0x80);
+
+    // Assert that the number of consumed bytes is not higher than the expected encoding size.
+    if (shift > maxByteNumber) {
+        throw new Error('Integer is too long.');
     }
+
+    return result;
+}
+
+function decodeSignedLeb128(parser: Parser, byteSize: number, maxByteSize: number): number {
+    let result = 0;
+    let shift = 0;
+    let byte: number;
+
+    do {
+        byte = consumeByte(parser);
+        
+        // Extract the low order 7 bits of byte, left shift the byte and add them to the current
+        // result.
+        result |= (byte & 0x7f) << (shift * 7);
+
+        // Increase the shift by one.
+        shift++;
+
+        // Repeat until the highest order bit (0x80) is 0.
+    } while ((byte & 0x80) === 0x80);
+
+    // Sign bit of byte is second high order bit (0x40).
+    if (shift < byteSize && (byte & 0x40) === 0x40) {
+        result |= ~0 << (shift * 7);
+    }
+
+    if (shift > maxByteSize) {
+        throw new Error('Integer is too long.');
+    }
+
+    return result;
+}
+
+function decodeUInt32(parser: Parser): number {
+    return decodeUnsignedLeb128(parser, MAX_NUMBER_OF_BYTE_U32);
+}
+function decodeInt32(parser: Parser): number {
+    return decodeSignedLeb128(parser, NUMBER_OF_BYTES_U32, MAX_NUMBER_OF_BYTE_U32);
+}
+function decodeInt64(parser: Parser): number {
+    return decodeSignedLeb128(parser, NUMBER_OF_BYTES_U64, MAX_NUMBER_OF_BYTE_U64)
+}
+function decodeFloat32(parser: Parser): number {
+    return 0;
+}
+function decodeFloat64(parser: Parser): number {
+    return 0;
 }
 
 function decodeContinutationByte(parser: Parser): Byte {
@@ -208,6 +234,26 @@ function decodeName(parser: Parser): string {
     });
 
     return charCodes.map(charCode => String.fromCharCode(charCode)).join('');
+}
+//#endregion Values
+
+// https://webassembly.github.io/spec/core/binary/types.html#binary-valtype
+function decodeValueType(parser: Parser): ValueType {
+    switch (consumeByte(parser)) {
+        case TypeCode.I32:
+            return ValueType.i32;
+
+        case TypeCode.I64:
+            return ValueType.i64;
+
+        case TypeCode.F32:
+            return ValueType.f32;
+
+        case TypeCode.F64:
+            return ValueType.f64;
+    }
+
+    throw new Error('Invalid value type');
 }
 
 // https://webassembly.github.io/spec/core/binary/types.html#limits
