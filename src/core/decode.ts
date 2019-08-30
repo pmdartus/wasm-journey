@@ -171,9 +171,11 @@ function decodeInt64(parser: Parser): number {
     return decodeSignedLeb128(parser, NUMBER_OF_BYTES_U64, MAX_NUMBER_OF_BYTE_U64)
 }
 function decodeFloat32(parser: Parser): number {
+    // TODO
     return 0;
 }
 function decodeFloat64(parser: Parser): number {
+    // TODO
     return 0;
 }
 

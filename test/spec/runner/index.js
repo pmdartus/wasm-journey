@@ -50,17 +50,11 @@ function getContent(filename, config) {
 }
 
 function isExpectedToFail(filename, test, config) {
-    const { expected } = config;
-
-    if (expected === undefined || expected[filename] === undefined) {
-        return false;
-    }
-
-    const match = expected[filename].find(entry => {
-        return entry[0] === test.name
-    });
-
-    return match && match[1] === 'FAIL';
+    const { expectedResults } = config;
+    return (
+        expectedResults[filename] !== undefined &&
+        expectedResults[filename].includes(test.name)
+    );
 }
 
 function getMeta(code) {
@@ -109,6 +103,45 @@ function getTests(config) {
     }
 }
 
+function loadExpected(config) {
+    const { expected } = config;
+
+    // Load expected if file is present, otherwise default to an empty object.
+    if (fs.existsSync(expected)) {
+        const content = fs.readFileSync(expected, 'utf-8');
+        config.expectedResults = JSON.parse(content);
+    } else {
+        config.expectedResults = {};
+    }
+}
+
+function updateExpected(results, config) {
+    const { expected } = config;
+    const failureByFiles = {};
+
+    // Check of the --update flag is passed to the command line
+    if (!process.argv.includes('--update')) {
+        return;
+    }
+
+    for (const result of results) {
+        const { status, filename, test } = result;
+
+        if (status !== FAILED) {
+            continue;
+        }
+
+        if (failureByFiles[filename] === undefined) {
+            failureByFiles[filename] = [];
+        }
+
+        failureByFiles[filename].push(test.name);
+    }
+
+    const content = JSON.stringify(failureByFiles, null, 4);
+    fs.writeFileSync(expected, content);
+}
+
 function reportTest(filename, results) {
     console.log(`\n${chalk.bold(filename)}`);
 
@@ -128,9 +161,7 @@ function reportTests(results) {
 
     console.log(chalk.bold.green(`\n✔ ${passing.length} passing test.`));
     if (failed.length) {
-        console.log(
-            chalk.bold.red(`\u00D7 ${failed.length} failing test.`),
-        );
+        console.log(chalk.bold.red(`\u00D7 ${failed.length} failing test.`));
 
         const resultsByFilename = {};
         for (const result of failed) {
@@ -234,14 +265,15 @@ function runTest(filename, config) {
                         // test as passing.
                         return expectedToFail ? pass(test) : fail(test);
                     default:
-                        // If a test that is expected to fail start passing then report a failure 
+                        // If a test that is expected to fail start passing then report a failure
                         // an indicate that the list of failure need to be updated.
                         if (expectedToFail) {
                             return fail({
                                 ...test,
-                                message: 'This test is expected to fail but now start passing. Update the "failure" list.',
-                                stack: ''
-                            })
+                                message:
+                                    'This test is expected to fail but now start passing. Update the "failure" list.',
+                                stack: '',
+                            });
                         } else {
                             return pass(test);
                         }
@@ -269,6 +301,8 @@ function runTest(filename, config) {
 }
 
 async function runTests(config) {
+    loadExpected(config);
+
     const tests = getTests(config);
     const results = [];
 
@@ -279,6 +313,7 @@ async function runTests(config) {
         reportTest(filename, res);
     }
 
+    updateExpected(results, config);
     reportTests(results);
 
     return results;
