@@ -789,6 +789,44 @@ function decodeInstruction(parser: Parser): Instruction {
             };
         }
 
+        // Comparison operators
+        case OpCode.I32Eqz:
+        case OpCode.I32Eq:
+        case OpCode.I32Ne:
+        case OpCode.I32LtS:
+        case OpCode.I32LtU:
+        case OpCode.I32GtS:
+        case OpCode.I32GtU:
+        case OpCode.I32LeS:
+        case OpCode.I32LeU:
+        case OpCode.I32GeS:
+        case OpCode.I32GeU:
+        case OpCode.I64Eqz:
+        case OpCode.I64Eq:
+        case OpCode.I64Ne:
+        case OpCode.I64LtS:
+        case OpCode.I64LtU:
+        case OpCode.I64GtS:
+        case OpCode.I64GtU:
+        case OpCode.I64LeS:
+        case OpCode.I64LeU:
+        case OpCode.I64GeS:
+        case OpCode.I64GeU:
+        case OpCode.F32Eq:
+        case OpCode.F32Ne:
+        case OpCode.F32Lt:
+        case OpCode.F32Gt:
+        case OpCode.F32Le:
+        case OpCode.F32Ge:
+        case OpCode.F64Eq:
+        case OpCode.F64Ne:
+        case OpCode.F64Lt:
+        case OpCode.F64Gt:
+        case OpCode.F64Le:
+        case OpCode.F64Ge: {
+            return { opcode };
+        }
+
         // Numeric operators
         case OpCode.I32Clz:
         case OpCode.I32Ctz:
@@ -917,20 +955,25 @@ function decodeCode(
     locals: ValueType[];
     body: Expression;
 } {
-    const _codeSize = decodeUInt32(parser);
+    const size = decodeUInt32(parser);
+    const endOffset = size + parser.offset;
 
     const locals: ValueType[] = [];
-    const localVecSize = decodeUInt32(parser);
-    for (let i = 0; i < localVecSize; i++) {
+    decodeVector(parser, () => {
         const localCount = decodeUInt32(parser);
         const valueType = decodeValueType(parser);
 
         for (let i = 0; i < localCount; i++) {
             locals.push(valueType);
         }
-    }
+    });
 
     const body = decodeExpression(parser);
+
+    if (endOffset !== parser.offset) {
+        throw new Error('Invalid code size');
+    }
+
     return {
         locals,
         body,
