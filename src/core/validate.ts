@@ -1,32 +1,56 @@
-import { FunctionType, Module, ValueType, Export, Function, Start, Table, Memory, Global, ResultType, Expression, TableType, Limits, MemoryType, Element, ElementType, Data } from './structure';
+import {
+    FunctionType,
+    Module,
+    ValueType,
+    Export,
+    Function,
+    Start,
+    Table,
+    Memory,
+    Global,
+    ResultType,
+    Expression,
+    TableType,
+    Limits,
+    MemoryType,
+    Element,
+    ElementType,
+    Data,
+    Import,
+    GlobalInstruction,
+    GlobalTypeMutability,
+    Instruction,
+} from './structure';
+import { OpCode } from './constants';
 
 // https://webassembly.github.io/spec/core/valid/conventions.html#context
 interface Context {
-    types: FunctionType[],
-    functions: Function[],
-    tables: Table[],
-    memories: Memory[],
-    globals: Global[],
-    locals: ValueType[],
-    labels: ResultType[],
-    return?: ResultType
+    types: FunctionType[];
+    functions: Function[];
+    tables: Table[];
+    memories: Memory[];
+    globals: Global[];
+    locals: ValueType[];
+    labels: ResultType[];
+    return?: ResultType;
+}
+
+function assert(value: boolean, message?: string) {
+    if (value != true) {
+        throw new Error(
+            'Invalid module' + (message !== undefined ? '' : ': ' + message),
+        );
+    }
 }
 
 function validateLimit(limit: Limits, range: number) {
     const { min, max } = limit;
 
-    if (min > range) {
-        throw new Error('Invalid limit, min is greater than range.');
-    }
+    assert(min < range, 'Invalid limit');
 
     if (max !== undefined) {
-        if (max > range) {
-            throw new Error('Invalid limit, max is greater than range');
-        }
-
-        if (min > max) {
-            throw new Error('Invalid lint, min is greater than range');
-        } 
+        assert(max < range, 'Invalid limit');
+        assert(min <= max, 'Invalid limit');
     }
 }
 
@@ -38,31 +62,61 @@ function validateTableType(type: TableType) {
 
 // https://webassembly.github.io/spec/core/valid/types.html#valid-memtype
 function validateMemoryType(type: MemoryType) {
-    validateLimit(type, 2 ** 16)
+    validateLimit(type, 2 ** 16);
+}
+
+// https://webassembly.github.io/spec/core/valid/instructions.html#instruction-sequences
+function validateInstructionSequence(context: Context, instructions: Instruction[]) {
+    if (instructions.length === 0) {
+        return;
+    }
 }
 
 // https://webassembly.github.io/spec/core/valid/instructions.html#expressions
-function validateExpression(context: Context, expression: Expression) {}
-function validateConstantExpression(context: Context, expression: Expression) {}
+function validateExpression(context: Context, expression: Expression) {
+    validateInstructionSequence(context, expression.instructions);
+}
+
+// https://webassembly.github.io/spec/core/valid/instructions.html#constant-expressions
+function validateConstantExpression(context: Context, expression: Expression) {
+    const { instructions } = expression;
+
+    for (let i = 0; i < instructions.length; i++) {
+        const instruction = instructions[i];
+        const { opcode } = instruction;
+
+        const isConstantInstruction =
+            opcode === OpCode.I32Const ||
+            opcode === OpCode.I64Const ||
+            opcode === OpCode.F32Const ||
+            opcode === OpCode.F64Const;
+
+        const isGlobalConstantInstruction =
+            opcode === OpCode.GetGlobal &&
+            context.globals[
+                (instruction as GlobalInstruction).globalIndex.index
+            ].type.mutability === GlobalTypeMutability.constant;
+
+        assert(isConstantInstruction || isGlobalConstantInstruction, 'Invalid constant expression');
+    }
+}
 
 // https://webassembly.github.io/spec/core/valid/types.html#valid-functype
 function validateFunctionType(context: Context, functionType: FunctionType) {
-    if (functionType.results.length > 1) {
-        throw TypeError("Invalid function type, can't have multiple return");
-    }
+    assert(functionType.results.length <= 1, 'Invalid function type');
 }
 
 // https://webassembly.github.io/spec/core/valid/modules.html#valid-func
 function validateFunction(context: Context, fn: Function) {
     const { type: typeIndex, locals, body } = fn;
     const type = context.types[typeIndex.index];
-    
+
     const fnContext: Context = {
         ...context,
         locals: [...type.params, ...locals],
         labels: [type.results],
-        return: type.results
-    }
+        return: type.results,
+    };
     validateExpression(fnContext, body);
 }
 
@@ -75,7 +129,14 @@ function validateTable(context: Context, table: Table) {
 // https://webassembly.github.io/spec/core/valid/modules.html#valid-mem
 function validateMemory(context: Context, memory: Memory) {
     const { type } = memory;
-    validateMemoryType(type)
+    validateMemoryType(type);
+}
+
+// https://webassembly.github.io/spec/core/valid/modules.html#valid-global
+function validateGlobal(context: Context, global: Global) {
+    const { initializer } = global;
+    validateExpression(context, initializer);
+    validateConstantExpression(context, initializer);
 }
 
 // https://webassembly.github.io/spec/core/valid/modules.html#valid-elem
@@ -83,28 +144,21 @@ function validateElement(context: Context, element: Element) {
     const { table: tableIndex, offset, initializer } = element;
     const table = context.tables[tableIndex];
 
-    if (table.type.elementType !== ElementType.FuncRef) {
-        throw new Error('Invalid table, unknown element type');
-    }
+    assert(table.type.elementType === ElementType.FuncRef, 'Invalid table');
 
     validateExpression(context, offset);
     validateConstantExpression(context, offset);
 
     for (const functionIndex of initializer) {
-        if (context.functions[functionIndex] === undefined) {
-            throw new Error('Invalid table, unknown function reference');
-        }
+        assert(context.functions[functionIndex] !== undefined, 'Invalid table');
     }
-
 }
 
 // https://webassembly.github.io/spec/core/valid/modules.html#valid-data
 function validateData(context: Context, data: Data) {
     const { data: dataIndex, offset } = data;
-    
-    if (context.memories[dataIndex] === undefined) {
-        throw new Error('Invalid data, unknown memory')
-    }
+
+    assert(context.memories[dataIndex] !== undefined, 'Invalid data');
 
     validateExpression(context, offset);
     validateConstantExpression(context, offset);
@@ -113,37 +167,33 @@ function validateData(context: Context, data: Data) {
 // https://webassembly.github.io/spec/core/valid/modules.html#start-function
 function validateStart(context: Context, start: Start) {
     const { function: functionIndex } = start;
-    const fn = context.functions[functionIndex];
 
-    if (fn === undefined) {
-        throw new Error('Invalid start, unknown function')
-    }
+    const fn = context.functions[functionIndex];
+    assert(fn !== undefined, 'Invalid start');
 
     const type = context.types[fn.type.index];
-
-    if (type.params.length !== 0 || type.results.length !== 0) {
-        throw new Error('Invalid start, start function can\'t receive parameters or return values');
-    }
-
+    assert(
+        type.params.length === 0 && type.results.length === 0,
+        'Invalid start',
+    );
 }
 
+function validateImport(context: Context, importedValue: Import) {}
+
 // https://webassembly.github.io/spec/core/valid/modules.html#exports
-function validateExport(exportedValue: Export) {
+function validateExport(context: Context, exportedValue: Export) {
     const exportedDescType = exportedValue.descriptor.type;
-    if (
-        exportedDescType !== 'function' &&
-        exportedDescType !== 'table' &&
-        exportedDescType !== 'memory' &&
-        exportedDescType !== 'global'
-    ) {
-        throw new TypeError(`Invalid export type ${exportedDescType}`);
-    }
+    assert(
+        exportedDescType === 'function' ||
+            exportedDescType === 'table' ||
+            exportedDescType === 'memory' ||
+            exportedDescType === 'global',
+        'Invalid export',
+    );
 }
 
 // https://webassembly.github.io/spec/core/valid/modules.html#valid-module
 export function validate(module: Module) {
-    const { exports } = module;
-
     const context: Context = {
         types: module.types,
         functions: [...module.functions],
@@ -152,53 +202,59 @@ export function validate(module: Module) {
         globals: [...module.globals],
         locals: [],
         labels: [],
-        return: undefined
+        return: undefined,
+    };
+    const contextGlobal: Context = {
+        types: [],
+        functions: [],
+        tables: [],
+        memories: [],
+        globals: [...module.globals],
+        locals: [],
+        labels: [],
+        return: undefined,
     };
 
-    for (const functionType of module.types) {
-        validateFunctionType(context, functionType);
+    for (let i = 0; i < module.types.length; i++) {
+        validateFunctionType(context, module.types[i]);
     }
-
-    for (const fn of module.functions) {
-        validateFunction(context, fn);
+    for (let i = 0; i < module.functions.length; i++) {
+        validateFunction(context, module.functions[i]);
     }
-
-    for (const table of module.tables) {
-        validateTable(context, table);
+    for (let i = 0; i < module.tables.length; i++) {
+        validateTable(context, module.tables[i]);
     }
-
-    for (const memory of module.memories) {
-        validateMemory(context, memory);
+    for (let i = 0; i < module.memories.length; i++) {
+        validateMemory(context, module.memories[i]);
     }
-
-    for (const global of module.globals) {
-        // TODO
+    for (let i = 0; i < module.globals.length; i++) {
+        validateGlobal(contextGlobal, module.globals[i]);
     }
-
-    for (const element of module.elements) {
-        validateElement(context, element);
+    for (let i = 0; i < module.elements.length; i++) {
+        validateElement(context, module.elements[i]);
     }
-
-    for (const data of module.datas) {
-        validateData(context, data);
+    for (let i = 0; i < module.datas.length; i++) {
+        validateData(context, module.datas[i]);
     }
-
     if (module.start !== undefined) {
         validateStart(context, module.start);
     }
-
-    for (const exportedValue of exports) {
-        validateExport(exportedValue);
+    for (let i = 0; i < module.imports.length; i++) {
+        validateImport(context, module.imports[i]);
+    }
+    for (let i = 0; i < module.exports.length; i++) {
+        validateExport(context, module.exports[i]);
     }
 
-    const exportLength = exports.length;
-    for (let i = 0; i < exportLength; i++) {
-        for (let j = i + 1; j < exportLength; j++) {
-            if (exports[i].name === exports[j].name) {
-                throw new TypeError(
-                    `Invalid export, duplicate ${exports[j].name} export`,
-                );
-            }
+    assert(context.tables.length <= 1, 'Invalid number of tables');
+    assert(context.memories.length <= 1, 'Invalid number of memories');
+
+    for (let i = 0; i < module.exports.length; i++) {
+        for (let j = i + 1; j < module.exports.length; j++) {
+            assert(
+                module.exports[i].name !== module.exports[j].name,
+                'Duplicate export name',
+            );
         }
     }
 }
