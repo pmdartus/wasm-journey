@@ -615,6 +615,8 @@ function decodeInstruction(parser: Parser): Instruction {
                 instructions.push(instruction);
             }
 
+            const _end = consumeByte(parser);
+
             return {
                 opcode,
                 resultTypes,
@@ -628,17 +630,23 @@ function decodeInstruction(parser: Parser): Instruction {
             const elseInstructions: Instruction[] = [];
 
             while (
-                peakByte(parser) !== OpCode.End &&
+                peakByte(parser) !== OpCode.End && 
                 peakByte(parser) !== OpCode.Else
             ) {
                 const instruction = decodeInstruction(parser);
                 ifInstructions.push(instruction);
             }
 
-            while (peakByte(parser) !== OpCode.End) {
-                const instruction = decodeInstruction(parser);
-                elseInstructions.push(instruction);
+            if (peakByte(parser) === OpCode.Else) {
+                const _else = consumeByte(parser);
+
+                while (peakByte(parser) !== OpCode.End) {
+                    const instruction = decodeInstruction(parser);
+                    elseInstructions.push(instruction);
+                }
             }
+
+            const _end = consumeByte(parser);
 
             return {
                 opcode,
@@ -657,7 +665,15 @@ function decodeInstruction(parser: Parser): Instruction {
         }
 
         case OpCode.BrTable: {
-            // TODO
+            const labelIndexes = decodeVector(parser, () => {
+                return decodeUInt32(parser);
+            })
+            const labelDefaultIndex = decodeUInt32(parser);
+            return {
+                opcode,
+                labelIndexes,
+                labelDefaultIndex
+            }
         }
 
         case OpCode.Return: {

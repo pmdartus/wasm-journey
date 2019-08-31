@@ -186,7 +186,8 @@ export interface BrInstruction extends BaseInstruction {
     labelIndex: Index;
 }
 export interface BrTableInstruction extends BaseInstruction {
-    // TODO
+    labelIndexes: Index[];
+    labelDefaultIndex: Index;
 }
 
 // Call operators
