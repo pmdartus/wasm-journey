@@ -277,3 +277,8 @@ opam install ocamlfind ocamlbuild
 
 Note: The `ocamlbuild` and `ocamlfind` are required to build the interpreter.
 
+# 01-09-2019
+
+What is a label in the code? What should it be used for?
+All the validation can be done in a single pass, so it can be inlined into the decoding. Which is not the case of other language.
+The spec gives some pseudo algorithm for validation in the appendix
